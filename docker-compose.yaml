@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  plex:
+    image: plexinc/pms-docker
+    container_name: plex
+    network_mode: host
+    environment:
+      - TZ=Europe/Rome
+      - PLEX_UID=1000
+      - PLEX_GID=1000
+    volumes:
+      - /path/to/plex/config:/config
+      - /Users/aromano/Cloudio/Data:/data
+
+  sonarr:
+    image: linuxserver/sonarr
+    container_name: sonarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - /path/to/sonarr/config:/config
+      - /Users/aromano/Cloudio/Data:/data
+    ports:
+      - "8989:8989"
+
+  radarr:
+    image: linuxserver/radarr
+    container_name: radarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - /path/to/radarr/config:/config
+      - /Users/aromano/Cloudio/Data:/data
+    ports:
+      - "7878:7878"
+
+  lidarr:
+    image: linuxserver/lidarr
+    container_name: lidarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - /path/to/lidarr/config:/config
+      - /Users/aromano/Cloudio/Data:/data
+    ports:
+      - "8686:8686"
+
+  # Un gestore di download come qBittorrent
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - /path/to/qbittorrent/config:/config
+      - /Users/aromano/Cloudio/Data:/data
+    ports:
+      - "8080:8080"
+      - "6881:6881/udp"
+
+volumes:
+  plex-config:
+  sonarr-config:
+  radarr-config:
+  lidarr-config:
+  downloads:
