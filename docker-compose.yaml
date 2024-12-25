@@ -1,5 +1,6 @@
 services:
   plex:
+    # Access URL: http://localhost:32400/web
     image: plexinc/pms-docker
     container_name: plex
     # NOTE: Network Configuration
@@ -31,6 +32,7 @@ services:
       - "32414:32414/udp"
 
   sonarr:
+    # Access URL: http://localhost:8989
     image: linuxserver/sonarr
     container_name: sonarr
     environment:
@@ -44,6 +46,7 @@ services:
       - "8989:8989"
 
   radarr:
+    # Access URL: http://localhost:7878
     image: linuxserver/radarr
     container_name: radarr
     environment:
@@ -57,6 +60,7 @@ services:
       - "7878:7878"
 
   lidarr:
+    # Access URL: http://localhost:8686
     image: linuxserver/lidarr
     container_name: lidarr
     environment:
@@ -71,6 +75,10 @@ services:
 
   # Un gestore di download come qBittorrent
   qbittorrent:
+    # Access URL: http://localhost:8080
+    # Default credentials: 
+    # username: admin
+    # password: adminadmin
     image: linuxserver/qbittorrent
     container_name: qbittorrent
     environment:
