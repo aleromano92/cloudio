@@ -100,10 +100,26 @@ services:
       - TZ=Europe/Rome
     volumes:
       - /Users/aromano/Cloudio/Config/qbittorrent:/config
-      - /Users/aromano/Cloudio/Data:/data/downloads
+      - /Users/aromano/Cloudio/Data:/data
     ports:
       - "8080:8080"
       - "6881:6881/udp"
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
+
+  prowlarr:
+    # Access URL: http://localhost:9696
+    image: linuxserver/prowlarr:latest
+    container_name: prowlarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - /Users/aromano/Cloudio/Config/prowlarr:/config
+    ports:
+      - "9696:9696"
     dns:
       - 1.1.1.1
       - 1.0.0.1
