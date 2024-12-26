@@ -30,6 +30,9 @@ services:
       - "32412:32412/udp"
       - "32413:32413/udp"
       - "32414:32414/udp"
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
 
   sonarr:
     # Access URL: http://localhost:8989
@@ -44,6 +47,9 @@ services:
       - /Users/aromano/Cloudio/Data:/data
     ports:
       - "8989:8989"
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
 
   radarr:
     # Access URL: http://localhost:7878
@@ -58,6 +64,9 @@ services:
       - /Users/aromano/Cloudio/Data:/data
     ports:
       - "7878:7878"
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
 
   lidarr:
     # Access URL: http://localhost:8686
@@ -72,13 +81,17 @@ services:
       - /Users/aromano/Cloudio/Data:/data
     ports:
       - "8686:8686"
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
 
   # Un gestore di download come qBittorrent
   qbittorrent:
     # Access URL: http://localhost:8080
-    # Default credentials: 
-    # username: admin
-    # password: adminadmin
+    ## username: admin
+    ## password: Check container logs after first start
+    ## The temporary password will be shown like:
+    # "The WebUI administrator password was not set. A temporary password is provided for this session: XXXXXXXX"
     image: linuxserver/qbittorrent
     container_name: qbittorrent
     environment:
@@ -87,7 +100,10 @@ services:
       - TZ=Europe/Rome
     volumes:
       - /Users/aromano/Cloudio/Config/qbittorrent:/config
-      - /Users/aromano/Cloudio/Data:/data
+      - /Users/aromano/Cloudio/Data:/data/downloads
     ports:
       - "8080:8080"
       - "6881:6881/udp"
+    dns:
+      - 1.1.1.1
+      - 1.0.0.1
