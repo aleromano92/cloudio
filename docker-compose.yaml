@@ -96,6 +96,8 @@ services:
     ## password: Check container logs after first start
     ## The temporary password will be shown like:
     # "The WebUI administrator password was not set. A temporary password is provided for this session: XXXXXXXX"
+    # Best guide to initial setup https://trash-guides.info/Downloaders/qBittorrent/Basic-Setup/
+    # Add categories for the Arr apps: https://trash-guides.info/Downloaders/qBittorrent/How-to-add-categories/
     image: linuxserver/qbittorrent
     container_name: qbittorrent
     environment:
