@@ -27,9 +27,8 @@ services:
       - TZ=Europe/Rome
       - JELLYFIN_PublishedServerUrl=http://192.168.0.80:8096
     volumes:
-      - /Users/aromano/Cloudio/Config/jellyfin:/config
-      - /Users/aromano/Cloudio/Data:/data
-      - /Users/aromano/Cloudio/Config/jellyfin/cache:/cache
+      - /Users/aromano/cloudio-volumes/config/jellyfin:/config
+      - /Users/aromano/cloudio-volumes/data/media:/data/media
     ports:
       - "8096:8096" # HTTP port for web interface
       - "8920:8920" # HTTPS port
@@ -49,8 +48,8 @@ services:
       - PGID=1000
       - TZ=Europe/Rome
     volumes:
-      - /Users/aromano/Cloudio/Config/sonarr:/config
-      - /Users/aromano/Cloudio/Data:/data
+      - /Users/aromano/cloudio-volumes/config/sonarr:/config
+      - /Users/aromano/cloudio-volumes/data:/data
     ports:
       - "8989:8989"
     dns:
@@ -66,8 +65,8 @@ services:
       - PGID=1000
       - TZ=Europe/Rome
     volumes:
-      - /Users/aromano/Cloudio/Config/radarr:/config
-      - /Users/aromano/Cloudio/Data:/data
+      - /Users/aromano/cloudio-volumes/config/radarr:/config
+      - /Users/aromano/cloudio-volumes/data:/data
     ports:
       - "7878:7878"
     dns:
@@ -83,15 +82,14 @@ services:
       - PGID=1000
       - TZ=Europe/Rome
     volumes:
-      - /Users/aromano/Cloudio/Config/lidarr:/config
-      - /Users/aromano/Cloudio/Data:/data
+      - /Users/aromano/cloudio-volumes/config/lidarr:/config
+      - /Users/aromano/cloudio-volumes/data:/data
     ports:
       - "8686:8686"
     dns:
       - 1.1.1.1
       - 1.0.0.1
 
-  # Un gestore di download come qBittorrent
   qbittorrent:
     # Access URL: http://localhost:8080
     ## username: admin
@@ -105,8 +103,8 @@ services:
       - PGID=1000
       - TZ=Europe/Rome
     volumes:
-      - /Users/aromano/Cloudio/Config/qbittorrent:/config
-      - /Users/aromano/Cloudio/Data:/data
+      - /Users/aromano/cloudio-volumes/config/qbittorrent:/config
+      - /Users/aromano/cloudio-volumes/data:/data
     ports:
       - "8080:8080"
       - "6881:6881/udp"
@@ -123,7 +121,7 @@ services:
       - PGID=1000
       - TZ=Europe/Rome
     volumes:
-      - /Users/aromano/Cloudio/Config/prowlarr:/config
+      - /Users/aromano/cloudio-volumes/config/prowlarr:/config
     ports:
       - "9696:9696"
     dns:
