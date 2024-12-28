@@ -1,8 +1,16 @@
 services:
-  plex:
-    # Access URL: http://localhost:32400/web
-    image: plexinc/pms-docker
-    container_name: plex
+  jellyfin:
+    # Access URLs: 
+    # - Regular URL: http://localhost:8096
+    # - Local network URL: http://YOUR_COMPUTER_IP:8096 (e.g., http://192.168.1.100:8096)
+    # - First time setup wizard (if not appearing): http://localhost:8096/web/index.html#!/wizardstart.html
+    # Note: If the setup wizard doesn't appear automatically on first launch,
+    # manually navigate to the wizard URL above to start the initial configuration
+    #
+    # To find your computer's IP:
+    # - On macOS: System Preferences → Network or run 'ifconfig' in terminal
+    # - The IP should be something like 192.168.1.xxx or 10.0.1.xxx
+    #
     # NOTE: Network Configuration
     # On Linux systems, using network_mode: host is recommended for better performance
     # and proper DLNA/network discovery. However, on macOS, host networking doesn't work
@@ -11,25 +19,23 @@ services:
     #
     # Linux configuration (uncomment if running on Linux):
     # network_mode: host
+    image: jellyfin/jellyfin
+    container_name: jellyfin
     environment:
+      - PUID=1000
+      - PGID=1000
       - TZ=Europe/Rome
-      - PLEX_UID=1000
-      - PLEX_GID=1000
+      - JELLYFIN_PublishedServerUrl=http://192.168.0.80:8096
     volumes:
-      - /Users/aromano/Cloudio/Config/plex:/config
+      - /Users/aromano/Cloudio/Config/jellyfin:/config
       - /Users/aromano/Cloudio/Data:/data
-    # These port mappings are needed for macOS/Windows
-    # They can be removed if using network_mode: host on Linux
+      - /Users/aromano/Cloudio/Config/jellyfin/cache:/cache
     ports:
-      - "32400:32400/tcp"
-      - "3005:3005/tcp"
-      - "8324:8324/tcp"
-      - "32469:32469/tcp"
-      - "1900:1900/udp"
-      - "32410:32410/udp"
-      - "32412:32412/udp"
-      - "32413:32413/udp"
-      - "32414:32414/udp"
+      - "8096:8096" # HTTP port for web interface
+      - "8920:8920" # HTTPS port
+      - "7359:7359/udp" # LAN discovery
+      - "1900:1900/udp" # DLNA discovery (now available since Plex is removed)
+      - "1901:1901/udp" # Additional DLNA service
     dns:
       - 1.1.1.1
       - 1.0.0.1
