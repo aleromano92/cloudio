@@ -58,6 +58,7 @@ services:
 
   radarr:
     # Access URL: http://localhost:7878
+    # Best guide to initial setup https://trash-guides.info/Radarr/Radarr-Setup/
     image: linuxserver/radarr
     container_name: radarr
     environment:
@@ -109,7 +110,7 @@ services:
       - /Users/aromano/cloudio-volumes/data:/data
     ports:
       - "8080:8080"
-      - "6881:6881/udp"
+      - "6881:6881"
     dns:
       - 1.1.1.1
       - 1.0.0.1
