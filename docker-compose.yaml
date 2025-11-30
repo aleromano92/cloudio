@@ -19,7 +19,7 @@ services:
     #
     # Linux configuration (uncomment if running on Linux):
     # network_mode: host
-    image: jellyfin/jellyfin
+    image: jellyfin/jellyfin:10.11
     container_name: jellyfin
     environment:
       - PUID=1000
@@ -41,7 +41,7 @@ services:
 
   sonarr:
     # Access URL: http://localhost:8989
-    image: linuxserver/sonarr
+    image: linuxserver/sonarr:4.0.16
     container_name: sonarr
     environment:
       - PUID=1000
@@ -59,7 +59,7 @@ services:
   radarr:
     # Access URL: http://localhost:7878
     # Best guide to initial setup https://trash-guides.info/Radarr/Radarr-Setup/
-    image: linuxserver/radarr
+    image: linuxserver/radarr:latest
     container_name: radarr
     environment:
       - PUID=1000
@@ -76,7 +76,7 @@ services:
 
   lidarr:
     # Access URL: http://localhost:8686
-    image: linuxserver/lidarr
+    image: linuxserver/lidarr:3.1.0
     container_name: lidarr
     environment:
       - PUID=1000
@@ -99,7 +99,7 @@ services:
     # "The WebUI administrator password was not set. A temporary password is provided for this session: XXXXXXXX"
     # Best guide to initial setup https://trash-guides.info/Downloaders/qBittorrent/Basic-Setup/
     # Add categories for the Arr apps: https://trash-guides.info/Downloaders/qBittorrent/How-to-add-categories/
-    image: linuxserver/qbittorrent
+    image: linuxserver/qbittorrent:5.1.4
     container_name: qbittorrent
     environment:
       - PUID=1000
@@ -117,7 +117,7 @@ services:
 
   prowlarr:
     # Access URL: http://localhost:9696
-    image: linuxserver/prowlarr:latest
+    image: linuxserver/prowlarr:2.3.0
     container_name: prowlarr
     environment:
       - PUID=1000
