@@ -9,10 +9,11 @@ Ansible. Static HTML, no build step.
 
 - **Locally:** open `learn/index.html` in a browser. All links are relative, so it
   just works from disk.
-- **GitHub Pages (rendered, shareable):** enable Pages on the repo
-  (Settings → Pages → *Deploy from a branch* → `master` / `/ (root)`). The course
-  is then at `https://<username>.github.io/cloudio/learn/`. The repo-root
-  `.nojekyll` file keeps Pages from touching the HTML.
+- **GitHub Pages (rendered, shareable):** the `.github/workflows/pages.yml`
+  workflow publishes this folder as the site root. One-time: repo
+  Settings → Pages → Source → **"GitHub Actions"**. After that every push that
+  touches `learn/` redeploys automatically. Live at
+  `https://aleromano92.github.io/cloudio/`.
 - Browsing the `.html` files directly on github.com shows their source, not the
   rendered page — use one of the two options above.
 
