@@ -1,0 +1,7 @@
+# Managed by Ansible (proxmox_base role).
+Host {{ restic_storagebox_host }}
+    HostName {{ restic_storagebox_host }}
+    User {{ restic_storagebox_user }}
+    Port 23
+    IdentityFile /root/.ssh/id_ed25519
+    IdentitiesOnly yes

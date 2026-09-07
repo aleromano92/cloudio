@@ -1,0 +1,74 @@
+---
+# UniFi Network Application in its own native (non-Docker) unprivileged LXC.
+
+- name: Ensure the LXC template is downloaded
+  ansible.builtin.command:
+    cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
+    creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+
+- name: Check whether the UniFi LXC exists
+  ansible.builtin.command: "pct status {{ unifi_ctid }}"
+  register: unifi_status
+  changed_when: false
+  failed_when: false
+
+- name: Create the UniFi LXC
+  ansible.builtin.command:
+    cmd: >-
+      pct create {{ unifi_ctid }} {{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}
+      --hostname {{ unifi_hostname }}
+      --cores {{ unifi_lxc_cores }}
+      --memory {{ unifi_lxc_memory }}
+      --swap {{ unifi_lxc_swap }}
+      --rootfs {{ unifi_lxc_storage }}:{{ unifi_lxc_disk_gb }}
+      --net0 name=eth0,bridge={{ unifi_lxc_bridge }},ip={{ unifi_lxc_ip }},gw={{ pve_gateway }}
+      --nameserver 1.1.1.1
+      --unprivileged 1
+      --onboot 1
+  when: unifi_status.rc != 0
+
+- name: Start the UniFi LXC
+  ansible.builtin.command: "pct start {{ unifi_ctid }}"
+  register: unifi_start
+  changed_when: "'already running' not in (unifi_start.stderr | default(''))"
+  failed_when:
+    - unifi_start.rc != 0
+    - "'already running' not in (unifi_start.stderr | default(''))"
+
+- name: Wait for the container to resolve DNS
+  ansible.builtin.command: "pct exec {{ unifi_ctid }} -- getent hosts www.ui.com"
+  register: unifi_dns
+  until: unifi_dns.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+
+- name: Install the UniFi Network Application (MongoDB 7 + OpenJDK 17)
+  ansible.builtin.shell:
+    cmd: |
+      pct exec {{ unifi_ctid }} -- bash -euc '
+        dpkg -s unifi >/dev/null 2>&1 && exit 0
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y ca-certificates curl gnupg apt-transport-https
+
+        curl -fsSL https://pgp.mongodb.com/server-7.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+        echo "deb [signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/7.0 main" > /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+        curl -fsSL https://dl.ui.com/unifi/unifi-repo.gpg -o /usr/share/keyrings/unifi-repo.gpg
+        echo "deb [signed-by=/usr/share/keyrings/unifi-repo.gpg] https://www.ui.com/downloads/unifi/debian stable ubiquiti" > /etc/apt/sources.list.d/100-ubnt-unifi.list
+
+        apt-get update
+        apt-get install -y openjdk-17-jre-headless unifi
+        systemctl enable --now unifi
+      '
+  register: unifi_install
+  changed_when: "'Setting up unifi ' in unifi_install.stdout"
+
+- name: Next steps for UniFi
+  ansible.builtin.debug:
+    msg: >-
+      UniFi is starting at https://{{ unifi_lxc_ip | regex_replace('/.*$', '') }}:8443
+      Create the admin account, then adopt the U7 Pro Wall APs (set-inform if they
+      don't appear). Turn on UniFi's own auto-backup (Settings -> System -> Backups)
+      -- vzdump then carries it off-site.

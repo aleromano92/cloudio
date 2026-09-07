@@ -1,0 +1,85 @@
+---
+# Home Assistant OS as a VM. See docs/adr/0005.
+# Uses `qm` directly: importing a qcow2 image has no Ansible module equivalent.
+
+- name: Check whether the HAOS VM already exists
+  ansible.builtin.command: "qm status {{ haos_vmid }}"
+  register: haos_status
+  changed_when: false
+  failed_when: false
+
+- name: Create the HAOS VM
+  when: haos_status.rc != 0
+  block:
+    - name: Download the HAOS image
+      ansible.builtin.get_url:
+        url: "https://github.com/home-assistant/operating-system/releases/download/{{ haos_image_version }}/haos_ova-{{ haos_image_version }}.qcow2.xz"
+        dest: "/root/haos_ova-{{ haos_image_version }}.qcow2.xz"
+        mode: "0644"
+
+    - name: Decompress the HAOS image
+      ansible.builtin.command:
+        cmd: "unxz -f -k /root/haos_ova-{{ haos_image_version }}.qcow2.xz"
+        creates: "/root/haos_ova-{{ haos_image_version }}.qcow2"
+
+    - name: Create the VM shell
+      ansible.builtin.command:
+        cmd: >-
+          qm create {{ haos_vmid }}
+          --name {{ haos_vm_name }}
+          --cores {{ haos_vm_cores }}
+          --memory {{ haos_vm_memory }}
+          --machine q35
+          --bios ovmf
+          --ostype l26
+          --scsihw virtio-scsi-single
+          --net0 virtio,bridge={{ haos_vm_bridge }}
+          --agent enabled=1
+          --onboot 1
+
+    - name: Add an EFI disk
+      ansible.builtin.command:
+        cmd: "qm set {{ haos_vmid }} --efidisk0 {{ haos_vm_storage }}:0,efitype=4m,pre-enrolled-keys=0"
+
+    - name: Import the HAOS disk image
+      ansible.builtin.command:
+        cmd: "qm importdisk {{ haos_vmid }} /root/haos_ova-{{ haos_image_version }}.qcow2 {{ haos_vm_storage }}"
+
+    # NOTE: efidisk0 above allocated vm-<id>-disk-0, so the imported disk is
+    # disk-1. If `qm importdisk` reports a different name, adjust scsi0 below.
+    - name: Attach the imported disk as the boot disk
+      ansible.builtin.command:
+        cmd: >-
+          qm set {{ haos_vmid }}
+          --scsi0 {{ haos_vm_storage }}:vm-{{ haos_vmid }}-disk-1
+          --boot order=scsi0
+
+    - name: Grow the disk
+      ansible.builtin.command:
+        cmd: "qm disk resize {{ haos_vmid }} scsi0 {{ haos_vm_disk_size }}"
+
+# --- Optional: USB coordinator passthrough --------------------------------
+# The BTicino MyHOME integration talks to a *network* gateway, so no USB device
+# is needed for it. If you later add a Zigbee stick, set haos_usb_coordinator_id
+# in group_vars and uncomment:
+#
+#    - name: Pass the USB coordinator through to HAOS
+#      ansible.builtin.command:
+#        cmd: "qm set {{ haos_vmid }} --usb0 host={{ haos_usb_coordinator_id }}"
+# -------------------------------------------------------------------------
+
+- name: Ensure the HAOS VM is running
+  ansible.builtin.command: "qm start {{ haos_vmid }}"
+  register: haos_start
+  changed_when: "'already running' not in (haos_start.stderr | default(''))"
+  failed_when:
+    - haos_start.rc != 0
+    - "'already running' not in (haos_start.stderr | default(''))"
+
+- name: Next steps for Home Assistant
+  ansible.builtin.debug:
+    msg: >-
+      HAOS is booting. Finish onboarding at http://homeassistant.local:8123
+      (or the VM's DHCP address). Give the VM a DHCP reservation so it stays at
+      .11, then install HACS. Once the electrician confirms the OpenWebNet
+      gateway (F454 / MyHOMEServer1), add the MyHome integration via HACS.

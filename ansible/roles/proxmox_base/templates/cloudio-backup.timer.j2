@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the cloudio nightly backup
+
+[Timer]
+OnCalendar={{ backup_on_calendar }}
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

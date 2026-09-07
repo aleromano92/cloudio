@@ -1,0 +1,19 @@
+---
+# Copy this file to vault.yml, fill in real values, then encrypt it:
+#
+#   cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+#   $EDITOR group_vars/all/vault.yml
+#   ansible-vault encrypt group_vars/all/vault.yml
+#
+# Run the playbook with:  ansible-playbook site.yml --ask-vault-pass
+#
+# The encrypted vault.yml IS committed. This .example file is the only
+# plaintext one and contains no real secrets.
+
+# Tailscale one-off auth key: https://login.tailscale.com/admin/settings/keys
+# A reusable or ephemeral key is fine.
+vault_tailscale_auth_key: "tskey-auth-XXXXXXXXXXXXXXXX"
+
+# restic repository password. Generate a long random string and STORE IT IN
+# YOUR PASSWORD MANAGER. Lose it and the off-site backups are unrecoverable.
+vault_restic_password: "generate-a-long-random-passphrase"

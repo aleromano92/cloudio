@@ -1,0 +1,56 @@
+---
+- name: Add the Tailscale apt signing key
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.noarmor.gpg"
+    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Add the Tailscale apt repo
+  ansible.builtin.get_url:
+    url: "https://pkgs.tailscale.com/stable/debian/{{ ansible_distribution_release }}.tailscale-keyring.list"
+    dest: /etc/apt/sources.list.d/tailscale.list
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install Tailscale
+  ansible.builtin.apt:
+    name: tailscale
+    state: present
+    update_cache: true
+
+- name: Enable tailscaled
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started
+
+- name: Allow IP forwarding (needed to advertise a subnet route)
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    sysctl_set: true
+    state: present
+    reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv6.conf.all.forwarding
+
+- name: Check the Tailscale backend state
+  ansible.builtin.command: tailscale status --json
+  register: ts_status
+  changed_when: false
+  failed_when: false
+
+- name: Connect Tailscale
+  ansible.builtin.command: >-
+    tailscale up
+    --authkey {{ vault_tailscale_auth_key }}
+    --advertise-routes={{ tailscale_advertise_routes }}
+    {{ tailscale_extra_args }}
+  when:
+    - vault_tailscale_auth_key | default('') | length > 0
+    - '"\"Running\"" not in ts_status.stdout'
+  no_log: true

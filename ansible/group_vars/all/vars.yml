@@ -1,0 +1,103 @@
+---
+# ============================================================================
+#  cloudio — variables you set before running the playbook.
+#  Secrets live in vault.yml (see vault.yml.example). Everything here is
+#  safe to commit. Anything marked CHANGE-ME must be filled in.
+# ============================================================================
+
+# --- Node / LAN -------------------------------------------------------------
+pve_ip: "192.168.1.10"          # static IP given to Proxmox at install
+pve_gateway: "192.168.1.1"
+lan_cidr: "192.168.1.0/24"
+timezone: "Europe/Rome"
+
+# --- Discrete GPU ---------------------------------------------------------
+blacklist_nvidia: true          # GeForce GT 740M is unused on this headless box
+
+# --- External media drive -------------------------------------------------
+# Format the USB drive ext4, then:  blkid /dev/sdX1   -> copy the UUID here.
+# While this is CHANGE-ME the playbook creates the mount point but does NOT
+# mount anything, and the media LXC's /data bind-mount will be empty.
+media_disk_uuid: "CHANGE-ME"
+media_disk_mount: "/mnt/media"  # where it mounts on the Proxmox host
+
+# --- Local backup target -------------------------------------------------
+# A second partition / USB stick, mounted here by you. The playbook only
+# creates the dump directory under it.
+backup_local_path: "/mnt/backup"
+
+# --- Off-site backup: Hetzner Storage Box (restic over SFTP) -------------
+restic_storagebox_user: "uXXXXXX"                       # CHANGE-ME
+restic_storagebox_host: "uXXXXXX.your-storagebox.de"    # CHANGE-ME
+restic_repo: "sftp:{{ restic_storagebox_host }}:/restic"
+restic_paths:
+  - /etc/pve
+  - /etc/network
+  - /etc/modprobe.d
+  - /etc/systemd/system
+restic_keep_daily: 7
+restic_keep_weekly: 4
+backup_on_calendar: "*-*-* 02:30:00"   # systemd OnCalendar expression
+
+# guests to vzdump nightly (their rootfs carries the app config/state)
+backup_guest_ids:
+  - "{{ haos_vmid }}"
+  - "{{ media_ctid }}"
+  - "{{ unifi_ctid }}"
+
+# --- Tailscale ----------------------------------------------------------
+tailscale_advertise_routes: "{{ lan_cidr }}"
+tailscale_extra_args: "--accept-dns=false"
+
+# --- LXC base template ------------------------------------------------
+lxc_template_storage: "local"
+lxc_template_file: "debian-12-standard_12.7-1_amd64.tar.zst"   # check `pveam available`
+
+# --- HAOS VM -------------------------------------------------------------
+haos_vmid: 110
+haos_vm_name: "homeassistant"
+haos_vm_cores: 2
+haos_vm_memory: 2048
+haos_vm_bridge: "vmbr0"
+haos_vm_storage: "local-lvm"
+haos_vm_disk_size: "32G"
+# Check the latest tag: https://github.com/home-assistant/operating-system/releases
+haos_image_version: "15.0"      # CHANGE-ME to a real, current release
+# haos_usb_coordinator_id: "10c4:ea60"   # only if you add a USB Zigbee stick later
+
+# --- media LXC (Docker) -----------------------------------------------
+media_ctid: 112
+media_hostname: "media"
+media_lxc_cores: 4
+media_lxc_memory: 4096
+media_lxc_swap: 512
+media_lxc_disk_gb: 12
+media_lxc_storage: "local-lvm"
+media_lxc_bridge: "vmbr0"
+media_lxc_ip: "192.168.1.12/24"
+media_puid: 1000
+media_pgid: 1000
+media_appdata_services:
+  - sonarr
+  - radarr
+  - lidarr
+  - prowlarr
+  - qbittorrent
+  - jellyfin
+# subdirectories to create on the media drive (inside the container: /data/...)
+media_data_subdirs:
+  - media/movies
+  - media/tv
+  - media/music
+  - downloads
+
+# --- UniFi LXC (native) ---------------------------------------------
+unifi_ctid: 113
+unifi_hostname: "unifi"
+unifi_lxc_cores: 2
+unifi_lxc_memory: 2048
+unifi_lxc_swap: 512
+unifi_lxc_disk_gb: 8
+unifi_lxc_storage: "local-lvm"
+unifi_lxc_bridge: "vmbr0"
+unifi_lxc_ip: "192.168.1.13/24"

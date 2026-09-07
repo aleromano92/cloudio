@@ -15,6 +15,11 @@
 
 Retention: 7 daily / 4 weekly. `restic` password is in `ansible/group_vars/all/vault.yml`.
 
+Driven by `/usr/local/sbin/cloudio-nightly-backup.sh` on `pve` (systemd timer
+`cloudio-backup.timer`). Repo + password come from `/etc/cloudio-backup.env`; the
+Storage Box connection uses `/root/.ssh/config` (port 23, key auth). To browse
+snapshots manually: `set -a; . /etc/cloudio-backup.env; set +a; restic snapshots`.
+
 ## Restore a single service (media stack)
 
 1. TODO: stop the affected container.

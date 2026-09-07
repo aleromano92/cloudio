@@ -1,0 +1,9 @@
+---
+- name: Install the NVIDIA/nouveau blacklist
+  ansible.builtin.copy:
+    src: blacklist-nvidia.conf
+    dest: /etc/modprobe.d/blacklist-nvidia.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: update initramfs

@@ -1,0 +1,15 @@
+---
+- name: Cloudio home server
+  hosts: proxmox
+  gather_facts: true
+  # We connect as root; no privilege escalation needed.
+
+  roles:
+    - role: proxmox_base
+      tags: ["base"]
+    - role: haos_vm
+      tags: ["haos", "guests"]
+    - role: media_lxc
+      tags: ["media", "guests"]
+    - role: unifi_lxc
+      tags: ["unifi", "guests"]

@@ -6,8 +6,9 @@ This repo is the reproducible recipe: from a fresh Proxmox install, cloning it a
 running one Ansible playbook rebuilds every service. It is also a deliberate
 learning project — Proxmox, LXC, Ansible, and home networking.
 
-> Status: **bootstrapping.** The docs and decisions are in place; the Ansible roles
-> are being built incrementally. See the roadmap below.
+> Status: **first draft.** Docs, decisions, and all four Ansible roles are written
+> but **untested against real hardware** — expect to refine them during the actual
+> build. See the roadmap below.
 
 ---
 
@@ -64,21 +65,23 @@ cloudio/
 │   ├── adr/                   # architecture decision records
 │   ├── network-topology.md    # flat-now / VLAN-later plan
 │   └── runbooks/              # restore-from-backup, migrate-to-new-hardware
-├── ansible/                   # (built during the setup sessions)
+├── ansible/
 │   ├── ansible.cfg
-│   ├── inventory.yml
-│   ├── site.yml
-│   ├── requirements.yml
+│   ├── inventory.yml           # one host: pve
+│   ├── site.yml                # runs the four roles
+│   ├── requirements.yml        # ansible.posix, community.general
 │   ├── group_vars/all/
-│   │   ├── vars.yml
-│   │   └── vault.yml          # ansible-vault encrypted
+│   │   ├── vars.yml            # everything you set (CHANGE-ME markers)
+│   │   ├── vault.yml.example   # template for the encrypted secrets file
+│   │   └── vault.yml           # you create this: ansible-vault encrypted
 │   └── roles/
-│       ├── proxmox_base/
-│       ├── haos_vm/
-│       ├── media_lxc/
-│       └── unifi_lxc/
+│       ├── proxmox_base/       # no-sub repo, packages, dGPU blacklist, USB mount,
+│       │                       #   Tailscale, restic + nightly vzdump timer
+│       ├── haos_vm/            # download HAOS image, qm create/import, start
+│       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
+│       └── unifi_lxc/          # pct create, install UniFi (MongoDB 7 + OpenJDK 17)
 └── media-stack/
-    ├── docker-compose.yaml    # Linux paths; image tags via .env
+    ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
     └── .env.example
 ```
 
@@ -89,10 +92,23 @@ cloudio/
 Everything after this is `ansible-playbook site.yml` from the laptop.
 
 1. **Install Proxmox VE** on the Vaio from a USB stick. Give it a **static IP** on the LAN (`.10`).
-2. From the laptop: `ssh-copy-id root@<pve-ip>` so Ansible can log in without a password.
-3. **Install Ansible on the laptop**: `pipx install ansible` (or `brew install ansible`).
-4. **Clone this repo**, set the Ansible Vault passphrase, and fill in `ansible/group_vars/all/vars.yml`
-   (IP, external drive UUID, image tags, paths) and the encrypted `vault.yml` (passwords, tokens).
+2. **Format the external drive ext4**, then note its UUID (`blkid /dev/sdX1`). Mount
+   your local backup disk/partition at `/mnt/backup`.
+3. From the laptop: `ssh-copy-id root@<pve-ip>` so Ansible can log in without a password.
+4. **Install Ansible on the laptop**: `pipx install ansible` (or `brew install ansible`).
+5. **Clone this repo**, then:
+   ```bash
+   cd ansible
+   ansible-galaxy collection install -r requirements.yml
+   cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+   $EDITOR group_vars/all/vault.yml          # Tailscale auth key, restic password
+   ansible-vault encrypt group_vars/all/vault.yml
+   $EDITOR group_vars/all/vars.yml           # fill every CHANGE-ME (pve_ip, drive UUID,
+                                             #   Storage Box user/host, HAOS version)
+   ```
+6. On first Storage Box use, the `proxmox_base` role prints an SSH public key to
+   install on the box (`ssh-copy-id -p23 uXXXXXX@uXXXXXX.your-storagebox.de`), then
+   re-run so `restic init` succeeds.
 
 Automating the Proxmox install itself (answer file) is a possible later step, not v1.
 
@@ -100,16 +116,35 @@ Automating the Proxmox install itself (answer file) is a possible later step, no
 
 ## How to run
 
-> Not wired up yet — the roles are being built. Target workflow:
+After Phase 0:
 
 ```bash
 cd ansible
-ansible-galaxy collection install -r requirements.yml
 ansible-playbook site.yml --ask-vault-pass
 ```
 
-Re-running is safe (idempotent). "Does reality match the repo?" is answered by
-re-running the playbook — there is no separate state file (see ADR-0003).
+Useful subsets:
+
+```bash
+ansible-playbook site.yml --ask-vault-pass --tags base       # just the host
+ansible-playbook site.yml --ask-vault-pass --tags haos       # just the HA VM
+ansible-playbook site.yml --ask-vault-pass --tags media
+ansible-playbook site.yml --ask-vault-pass --tags unifi
+ansible-playbook site.yml --ask-vault-pass --check           # dry run
+```
+
+Re-running is safe (idempotent). Ansible drives the native `pct` / `qm` /
+`docker compose` CLIs directly — there is no Terraform and no state file; "does
+reality match the repo?" is answered by re-running the playbook (see ADR-0003).
+
+### Hardware transcoding
+
+Jellyfin hardware transcoding (Intel Quick Sync — **H.264 only** on this CPU, no
+HEVC) needs the render node (`/dev/dri/renderD128`) exposed to the unprivileged
+`media` LXC: add `lxc.cgroup2.devices.allow` + `lxc.mount.entry` lines to
+`/etc/pve/lxc/112.conf`, then uncomment the `devices:` block in
+`media-stack/docker-compose.yaml`. Left disabled in this draft — direct play and
+software transcode work without it. TODO: fold this into the `media_lxc` role.
 
 ---
 

@@ -1,0 +1,91 @@
+---
+- name: Ensure /root/.ssh exists
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    mode: "0700"
+
+- name: Generate an SSH key for the Storage Box
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519 -C "cloudio-restic"
+    creates: /root/.ssh/id_ed25519
+
+- name: Read the Storage Box public key
+  ansible.builtin.command: cat /root/.ssh/id_ed25519.pub
+  register: sb_pubkey
+  changed_when: false
+
+- name: Show the public key to install on the Storage Box
+  ansible.builtin.debug:
+    msg: >-
+      Install this key on the Hetzner Storage Box (one time), e.g.:
+      ssh-copy-id -p23 {{ restic_storagebox_user }}@{{ restic_storagebox_host }}
+      -- key: {{ sb_pubkey.stdout }}
+
+- name: SSH client config for the Storage Box (port 23, key auth)
+  ansible.builtin.template:
+    src: storagebox-ssh-config.j2
+    dest: /root/.ssh/config
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Trust the Storage Box host key
+  ansible.builtin.known_hosts:
+    path: /root/.ssh/known_hosts
+    name: "[{{ restic_storagebox_host }}]:23"
+    key: "{{ lookup('ansible.builtin.pipe', 'ssh-keyscan -p23 -t ssh-ed25519 ' ~ restic_storagebox_host) }}"
+  failed_when: false
+
+- name: Install the restic environment file
+  ansible.builtin.template:
+    src: cloudio-backup.env.j2
+    dest: /etc/cloudio-backup.env
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Initialise the restic repository (safe to re-run)
+  ansible.builtin.shell:
+    cmd: "set -a; . /etc/cloudio-backup.env; set +a; restic cat config >/dev/null 2>&1 || restic init"
+  register: restic_init
+  changed_when: "'created restic repository' in restic_init.stdout"
+  failed_when:
+    - restic_init.rc != 0
+    - "'already initialized' not in (restic_init.stderr | default(''))"
+  when:
+    - vault_restic_password | default('') | length > 0
+    - restic_storagebox_user != "uXXXXXX"
+
+- name: Ensure the local dump directory exists
+  ansible.builtin.file:
+    path: "{{ backup_local_path }}/dump"
+    state: directory
+    mode: "0700"
+
+- name: Install the nightly backup script
+  ansible.builtin.template:
+    src: cloudio-nightly-backup.sh.j2
+    dest: /usr/local/sbin/cloudio-nightly-backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install the backup service + timer
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - cloudio-backup.service
+    - cloudio-backup.timer
+  notify: systemd daemon-reload
+
+- name: Enable the backup timer
+  ansible.builtin.systemd:
+    name: cloudio-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: true

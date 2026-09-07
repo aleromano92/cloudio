@@ -1,0 +1,12 @@
+---
+- name: update initramfs
+  ansible.builtin.command: update-initramfs -u -k all
+
+- name: systemd daemon-reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart pveproxy
+  ansible.builtin.systemd:
+    name: pveproxy
+    state: restarted

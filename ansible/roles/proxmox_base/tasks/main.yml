@@ -1,0 +1,25 @@
+---
+- name: Switch Proxmox apt to the no-subscription repo
+  ansible.builtin.import_tasks: apt_repos.yml
+  tags: ["apt"]
+
+- name: Install base packages
+  ansible.builtin.import_tasks: packages.yml
+  tags: ["apt"]
+
+- name: Blacklist the discrete GPU
+  ansible.builtin.import_tasks: blacklist_dgpu.yml
+  when: blacklist_nvidia | bool
+  tags: ["gpu"]
+
+- name: Mount the external media drive
+  ansible.builtin.import_tasks: usb_media_mount.yml
+  tags: ["storage"]
+
+- name: Install and connect Tailscale
+  ansible.builtin.import_tasks: tailscale.yml
+  tags: ["tailscale"]
+
+- name: Set up backups (vzdump + restic to Hetzner)
+  ansible.builtin.import_tasks: backup.yml
+  tags: ["backup"]

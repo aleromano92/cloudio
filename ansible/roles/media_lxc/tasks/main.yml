@@ -1,0 +1,102 @@
+---
+# The media stack: one unprivileged LXC running Docker + docker-compose.
+# See docs/adr/0002 (config in git, state in backups).
+
+- name: Ensure the LXC template is downloaded
+  ansible.builtin.command:
+    cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
+    creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+
+- name: Check whether the media LXC exists
+  ansible.builtin.command: "pct status {{ media_ctid }}"
+  register: media_status
+  changed_when: false
+  failed_when: false
+
+- name: Create the media LXC
+  ansible.builtin.command:
+    cmd: >-
+      pct create {{ media_ctid }} {{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}
+      --hostname {{ media_hostname }}
+      --cores {{ media_lxc_cores }}
+      --memory {{ media_lxc_memory }}
+      --swap {{ media_lxc_swap }}
+      --rootfs {{ media_lxc_storage }}:{{ media_lxc_disk_gb }}
+      --net0 name=eth0,bridge={{ media_lxc_bridge }},ip={{ media_lxc_ip }},gw={{ pve_gateway }}
+      --nameserver 1.1.1.1
+      --features nesting=1,keyctl=1
+      --unprivileged 1
+      --onboot 1
+      --mp0 {{ media_disk_mount }},mp=/data,backup=0
+  when: media_status.rc != 0
+
+- name: Start the media LXC
+  ansible.builtin.command: "pct start {{ media_ctid }}"
+  register: media_start
+  changed_when: "'already running' not in (media_start.stderr | default(''))"
+  failed_when:
+    - media_start.rc != 0
+    - "'already running' not in (media_start.stderr | default(''))"
+
+- name: Wait for the container to resolve DNS
+  ansible.builtin.command: "pct exec {{ media_ctid }} -- getent hosts download.docker.com"
+  register: media_dns
+  until: media_dns.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+
+- name: Install Docker inside the media LXC
+  ansible.builtin.shell:
+    cmd: |
+      pct exec {{ media_ctid }} -- bash -euc '
+        command -v docker >/dev/null 2>&1 && exit 0
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y ca-certificates curl
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        . /etc/os-release
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        systemctl enable --now docker
+      '
+  register: media_docker
+  changed_when: "'Setting up docker-ce ' in media_docker.stdout"
+
+- name: Create app + data directories in the container
+  ansible.builtin.command: >-
+    pct exec {{ media_ctid }} -- mkdir -p
+    /opt/media-stack
+    {% for s in media_appdata_services %}/opt/appdata/{{ s }} {% endfor %}
+    {% for d in media_data_subdirs %}/data/{{ d }} {% endfor %}
+  changed_when: false
+
+- name: Render the media-stack .env
+  ansible.builtin.template:
+    src: env.j2
+    dest: /root/.cloudio-media.env
+    mode: "0600"
+
+- name: Push docker-compose.yaml into the container
+  ansible.builtin.command:
+    cmd: >-
+      pct push {{ media_ctid }}
+      {{ playbook_dir }}/../media-stack/docker-compose.yaml
+      /opt/media-stack/docker-compose.yaml --perms 0644
+  changed_when: true
+
+- name: Push the rendered .env into the container
+  ansible.builtin.command:
+    cmd: "pct push {{ media_ctid }} /root/.cloudio-media.env /opt/media-stack/.env --perms 0600"
+  changed_when: true
+
+- name: Bring up the media stack
+  ansible.builtin.command:
+    cmd: "pct exec {{ media_ctid }} -- docker compose --project-directory /opt/media-stack up -d --remove-orphans"
+  register: media_compose
+  changed_when: >-
+    'Started' in (media_compose.stderr | default('')) or
+    'Created' in (media_compose.stderr | default(''))

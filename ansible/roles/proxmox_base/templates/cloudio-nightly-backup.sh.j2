@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Managed by Ansible (proxmox_base/backup.yml). Refine freely.
+#
+# 1. vzdump each guest to a local dump dir (keep the 2 newest per guest)
+# 2. restic backup: host config paths + the local dumps -> Hetzner Storage Box
+# 3. restic forget --prune to the retention policy
+set -euo pipefail
+
+set -a
+# shellcheck disable=SC1091
+. /etc/cloudio-backup.env
+set +a
+
+DUMP_DIR="{{ backup_local_path }}/dump"
+mkdir -p "$DUMP_DIR"
+
+echo "=== $(date -Is) vzdump ==="
+{% for id in backup_guest_ids %}
+vzdump {{ id }} --mode snapshot --compress zstd --dumpdir "$DUMP_DIR" --quiet 1 \
+  || echo "!! vzdump {{ id }} failed"
+{% endfor %}
+
+# keep only the 2 newest local dumps per guest
+{% for id in backup_guest_ids %}
+ls -1t "$DUMP_DIR"/vzdump-*-{{ id }}-*.* 2>/dev/null | tail -n +3 | xargs -r rm -f || true
+{% endfor %}
+
+echo "=== $(date -Is) restic backup ==="
+restic backup --tag nightly {{ restic_paths | join(' ') }} "$DUMP_DIR"
+
+echo "=== $(date -Is) restic forget --prune ==="
+restic forget \
+  --keep-daily {{ restic_keep_daily }} \
+  --keep-weekly {{ restic_keep_weekly }} \
+  --prune
+
+echo "=== $(date -Is) done ==="

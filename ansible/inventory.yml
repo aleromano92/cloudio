@@ -1,0 +1,8 @@
+---
+# The single Proxmox node. Its address comes from `pve_ip` in
+# group_vars/all/vars.yml so there is exactly one place to change it.
+proxmox:
+  hosts:
+    pve:
+      ansible_host: "{{ pve_ip }}"
+      ansible_user: root

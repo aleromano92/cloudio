@@ -1,0 +1,106 @@
+# Media stack — runs inside the `media` LXC, deployed by ansible/roles/media_lxc.
+#
+# Paths and IDs come from .env (rendered by Ansible from group_vars):
+#   PUID, PGID, TZ, APPDATA=/opt/appdata, MEDIA=/data
+#
+# APPDATA lives on the LXC rootfs (captured by nightly vzdump).
+# MEDIA (/data) is the external USB drive, bind-mounted by the LXC; it holds
+#   /data/media/{movies,tv,music} and /data/downloads on ONE filesystem so the
+#   *arr apps can hardlink instead of copy. It is NOT backed up (disposable).
+#
+# Image tags are pinned. Bump them deliberately.
+
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:10.11
+    container_name: jellyfin
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APPDATA}/jellyfin:/config
+      - ${MEDIA}/media:/data/media
+    ports:
+      - "8096:8096"      # web UI
+      - "8920:8920"      # https
+      - "7359:7359/udp"  # LAN discovery
+      - "1900:1900/udp"  # DLNA
+    # Hardware transcoding (Intel Quick Sync — H.264 only on this CPU) needs the
+    # render node exposed to this unprivileged LXC first. Left off until that
+    # LXC config is added — see README "Hardware transcoding".
+    # devices:
+    #   - /dev/dri:/dev/dri
+    restart: unless-stopped
+
+  sonarr:
+    image: linuxserver/sonarr:4.0.16
+    container_name: sonarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APPDATA}/sonarr:/config
+      - ${MEDIA}:/data
+    ports:
+      - "8989:8989"
+    restart: unless-stopped
+
+  radarr:
+    image: linuxserver/radarr:latest   # original was unpinned; pin a real tag when convenient
+    container_name: radarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APPDATA}/radarr:/config
+      - ${MEDIA}:/data
+    ports:
+      - "7878:7878"
+    restart: unless-stopped
+
+  lidarr:
+    image: linuxserver/lidarr:3.1.0
+    container_name: lidarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APPDATA}/lidarr:/config
+      - ${MEDIA}:/data
+    ports:
+      - "8686:8686"
+    restart: unless-stopped
+
+  prowlarr:
+    image: linuxserver/prowlarr:2.3.0
+    container_name: prowlarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${APPDATA}/prowlarr:/config
+    ports:
+      - "9696:9696"
+    restart: unless-stopped
+
+  qbittorrent:
+    image: linuxserver/qbittorrent:5.1.4
+    container_name: qbittorrent
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ${APPDATA}/qbittorrent:/config
+      - ${MEDIA}:/data
+    ports:
+      - "8080:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    restart: unless-stopped

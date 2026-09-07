@@ -1,0 +1,32 @@
+---
+- name: Create the media mount point
+  ansible.builtin.file:
+    path: "{{ media_disk_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Stop USB devices from auto-suspending (keeps the external drive awake)
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/usb-no-autosuspend.conf
+    content: "options usbcore autosuspend=-1\n"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: update initramfs
+
+- name: Mount the external media drive by UUID
+  ansible.posix.mount:
+    path: "{{ media_disk_mount }}"
+    src: "UUID={{ media_disk_uuid }}"
+    fstype: ext4
+    opts: "defaults,nofail,x-systemd.device-timeout=30s"
+    state: mounted
+  when: media_disk_uuid != "CHANGE-ME"
+
+- name: Warn when the media drive UUID is not set yet
+  ansible.builtin.debug:
+    msg: >-
+      media_disk_uuid is still CHANGE-ME, so the external drive is NOT mounted.
+      Format it ext4, run `blkid`, put the UUID in group_vars/all/vars.yml, and
+      re-run with --tags storage,media.
+  when: media_disk_uuid == "CHANGE-ME"
