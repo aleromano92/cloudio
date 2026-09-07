@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reference · Ansible mental model</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<nav class="crumb"><a href="../index.html">Course home</a> &nbsp;/&nbsp; Reference &nbsp;/&nbsp; Ansible mental model</nav>
+<main class="wrap">
+
+<h1>Ansible mental model</h1>
+<p class="subtitle">One page. The nouns and the one-line rule. Print it.</p>
+
+<h2>The picture</h2>
+<pre><code>  your MacBook                          the Vaio ("pve")
+  ┌───────────────────┐   SSH + push    ┌──────────────────────┐
+  │  CONTROL NODE     │ ──────────────▶ │  MANAGED NODE        │
+  │  • ansible installed              │ │  • sshd running      │
+  │  • the cloudio repo               │ │  • python3 present   │
+  │  • inventory.yml (the list)       │ │  • nothing else      │
+  │  • site.yml (the plan)            │ │    ansible-specific  │
+  └───────────────────┘                 └──────────────────────┘
+
+  You run:  ansible-playbook site.yml
+  Ansible:  reads the plan → connects over SSH → makes the node match → disconnects</code></pre>
+
+<h2>The nouns</h2>
+<table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Control node</strong></td><td>Where Ansible runs. Your Mac. Never listed in the inventory.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Managed node</strong></td><td>A machine Ansible changes. Reached over SSH. Here: <code>pve</code>.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Inventory</strong></td><td>The list of managed nodes, in groups. File: <code>ansible/inventory.yml</code>.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Playbook</strong></td><td>An ordered plan in YAML. File: <code>ansible/site.yml</code>.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Play</strong></td><td>One block inside a playbook: "these hosts get these roles/tasks".</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Task</strong></td><td>One step. Calls exactly one module.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Module</strong></td><td>The unit of work (<code>apt</code>, <code>copy</code>, <code>template</code>, <code>command</code>…). Ships the "make it so" logic.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Role</strong></td><td>A reusable folder of tasks + files + templates + handlers. Here: <code>proxmox_base</code>, <code>haos_vm</code>, <code>media_lxc</code>, <code>unifi_lxc</code>.</td></tr>
+<tr><td style="padding:0.4rem 0.6rem 0.4rem 0;"><strong>Collection</strong></td><td>A distributable bundle of modules/roles from Galaxy. Here: <code>ansible.posix</code>, <code>community.general</code>.</td></tr>
+</table>
+
+<h2>The one rule that explains the style</h2>
+<div class="callout">
+<span class="tag">Idempotency</span>
+Running the playbook once and running it ten times leave the node in the same
+state. A task only reports <em>changed</em> when it actually changed something.
+This is why cloudio can re-run <code>site.yml</code> after every small edit
+instead of rebuilding from scratch.
+</div>
+
+<h2>What is NOT here</h2>
+<ul>
+<li>No agent/daemon on the managed node. Just SSH + Python.</li>
+<li>No central server. The control node is wherever you run the command.</li>
+<li>No state file. "Is reality correct?" is answered by re-running (contrast: Terraform).</li>
+</ul>
+
+<p class="citations"><small>Sources:
+<a href="https://docs.ansible.com/projects/ansible/latest/getting_started/introduction.html">Introduction to Ansible</a>,
+<a href="https://docs.ansible.com/projects/ansible/latest/getting_started/index.html">Getting started with Ansible</a>
+(Ansible Community Documentation).</small></p>
+
+</main>
+</body>
+</html>

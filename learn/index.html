@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cloudio · course</title>
+<link rel="stylesheet" href="assets/course.css">
+</head>
+<body>
+<nav class="crumb">cloudio &nbsp;/&nbsp; course</nav>
+<main class="wrap">
+
+<h1>Owning the cloudio stack</h1>
+<p class="subtitle">A build-along course. Every lesson is short, tied to a real file
+in this repo, and ends with a recall check. Read the
+<a href="MISSION.md">mission</a> &middot; the <a href="RESOURCES.md">resources</a>
+&middot; the <a href="GLOSSARY.md">glossary</a>.</p>
+
+<div class="callout">
+<span class="tag">How to use this</span>
+Work top to bottom. Do the "In the repo" task in each lesson with the actual files
+open. When something is unclear, ask your teacher (the Claude Code session) — that
+is the fastest path, and it is what the follow-up nudge at the end of each lesson
+means.
+</div>
+
+<ul class="modules">
+
+<li class="module">
+<h2>Module 1 — Ansible, from zero</h2>
+<p><small>Goal: read any file in <code>ansible/</code> and explain it; add a new
+service unaided; debug a failed run.</small></p>
+<ul class="lessons">
+  <li><span class="num">1</span> <a href="lessons/0001-what-is-ansible.html">What is Ansible?</a> <span class="state ready">ready</span></li>
+  <li class="planned"><span class="num">2</span> The control node: <code>ansible.cfg</code>, <code>requirements.yml</code>, collections <span class="state">planned</span></li>
+  <li class="planned"><span class="num">3</span> The inventory: <code>inventory.yml</code> and what a "host" is <span class="state">planned</span></li>
+  <li class="planned"><span class="num">4</span> The playbook: <code>site.yml</code>, plays, roles, tags <span class="state">planned</span></li>
+  <li class="planned"><span class="num">5</span> Variables: <code>group_vars/all/vars.yml</code> and precedence <span class="state">planned</span></li>
+  <li class="planned"><span class="num">6</span> A role's anatomy: <code>proxmox_base/</code> folder by folder <span class="state">planned</span></li>
+  <li class="planned"><span class="num">7</span> Modules vs <code>command</code>/<code>shell</code>, and idempotency guards <span class="state">planned</span></li>
+  <li class="planned"><span class="num">8</span> Handlers and <code>notify</code> <span class="state">planned</span></li>
+  <li class="planned"><span class="num">9</span> Templates: Jinja2 and the <code>.j2</code> files <span class="state">planned</span></li>
+  <li class="planned"><span class="num">10</span> Secrets: Ansible Vault and <code>vault.yml</code> <span class="state">planned</span></li>
+  <li class="planned"><span class="num">11</span> Running it: tags, <code>--check</code>, reading output, debugging <span class="state">planned</span></li>
+</ul>
+</li>
+
+<li class="module">
+<h2>Module 2 — Proxmox &amp; containers <small>(after Module 1)</small></h2>
+<ul class="lessons">
+  <li class="planned"><span class="num">—</span> Hypervisor, VM vs LXC, why HAOS is a VM <span class="state">planned</span></li>
+  <li class="planned"><span class="num">—</span> <code>pct</code> and <code>qm</code>: what the roles actually call <span class="state">planned</span></li>
+  <li class="planned"><span class="num">—</span> Unprivileged LXC, nesting, bind mounts <span class="state">planned</span></li>
+</ul>
+</li>
+
+<li class="module">
+<h2>Module 3 — Backups, networking, the rest <small>(later)</small></h2>
+<ul class="lessons">
+  <li class="planned"><span class="num">—</span> systemd services &amp; timers; the nightly backup <span class="state">planned</span></li>
+  <li class="planned"><span class="num">—</span> restic: snapshots, prune, the Storage Box <span class="state">planned</span></li>
+  <li class="planned"><span class="num">—</span> Tailscale: mesh VPN, subnet routes, no port-forwarding <span class="state">planned</span></li>
+  <li class="planned"><span class="num">—</span> The flat network and what Phase 2 needs <span class="state">planned</span></li>
+</ul>
+</li>
+
+</ul>
+
+<h2>Reference</h2>
+<ul class="lessons">
+  <li><a href="reference/ansible-mental-model.html">Ansible mental model</a> <span class="state ready">ready</span></li>
+</ul>
+
+<p class="ask">The lesson list will grow as we go. Ask for the next lesson whenever
+you're ready, or ask for a detour on anything unclear.</p>
+
+</main>
+</body>
+</html>

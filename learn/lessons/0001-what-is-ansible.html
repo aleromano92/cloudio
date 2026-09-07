@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1 · What is Ansible?</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<nav class="crumb"><a href="../index.html">Course home</a> &nbsp;/&nbsp; Module 1 &nbsp;/&nbsp; 1. What is Ansible?</nav>
+<main class="wrap">
+
+<h1>What is Ansible?</h1>
+<p class="subtitle">Module 1, Lesson 1 &middot; ~7 minutes</p>
+
+<div class="callout win">
+<span class="tag">The win</span>
+By the end you can point at the cloudio repo and say: <em>this</em> machine runs
+Ansible, <em>that</em> machine gets configured, <em>this file</em> is the list, and
+<em>that file</em> is the plan — and explain why re-running the plan is safe.
+</div>
+
+<h2>The one-sentence version</h2>
+<p>
+Ansible is a tool that <strong>logs into other machines over SSH and makes them
+match a description you wrote</strong>. The description lives in plain-text files
+you keep in git. That's it. Everything else is detail.
+</p>
+<p>
+The official docs put it this way: Ansible lets you
+&ldquo;declare the desired state of a local or remote system&rdquo; and then
+&ldquo;ensures that the system remains in that state.&rdquo;<sup><a href="#c1">1</a></sup>
+</p>
+
+<h2>Why cloudio needs it</h2>
+<p>
+Your plan is: install Proxmox on the Vaio by hand once, then run
+<strong>one command from your MacBook</strong> and have the whole server build
+itself — the Home Assistant VM, the two LXC containers, Docker, the media stack,
+UniFi, Tailscale, the backups. That "one command" is Ansible reading
+<code>ansible/site.yml</code> and doing the work over SSH.
+</p>
+<p>
+If the Vaio dies, you buy another mini-PC, install Proxmox, run the same command,
+restore the backups, and you're back. The repo <em>is</em> the server, written
+down.
+</p>
+
+<h2>The four nouns</h2>
+<p>Ansible has a small vocabulary. Four words carry most of it:</p>
+
+<table style="width:100%; border-collapse:collapse; font-size:0.94rem; margin:1rem 0;">
+<tr style="border-bottom:1px solid var(--rule);">
+  <td style="padding:0.5rem 0.7rem 0.5rem 0; width:9rem;"><strong>Control node</strong></td>
+  <td>The machine that runs Ansible. <strong>Your MacBook.</strong> Nothing about
+  Ansible is permanently installed on the machines it manages — the control node
+  is where the tool and the repo live.<sup><a href="#c2">2</a></sup></td>
+</tr>
+<tr style="border-bottom:1px solid var(--rule);">
+  <td style="padding:0.5rem 0.7rem 0.5rem 0;"><strong>Managed node</strong></td>
+  <td>A machine Ansible changes, reached over SSH. Here that's the Vaio, which the
+  repo calls <code>pve</code>. It just needs <code>sshd</code> running and Python
+  present — both already true on a fresh Proxmox install.</td>
+</tr>
+<tr style="border-bottom:1px solid var(--rule);">
+  <td style="padding:0.5rem 0.7rem 0.5rem 0;"><strong>Inventory</strong></td>
+  <td>The <strong>list</strong> of managed nodes, organised into groups. File:
+  <code>ansible/inventory.yml</code>. cloudio's is tiny — one host.</td>
+</tr>
+<tr>
+  <td style="padding:0.5rem 0.7rem 0.5rem 0;"><strong>Playbook</strong></td>
+  <td>The <strong>plan</strong>: an ordered list of things to make true, in YAML.
+  File: <code>ansible/site.yml</code>. "Playbooks automate your tasks" using
+  &ldquo;YAML syntax for code that reads like documentation.&rdquo;<sup><a href="#c1">1</a></sup></td>
+</tr>
+</table>
+
+<p>
+Keep the
+<a href="../reference/ansible-mental-model.html">Ansible mental model</a>
+reference open alongside this — it's the same picture on one printable page.
+</p>
+
+<h2>See it in the repo</h2>
+
+<p class="filename">ansible/inventory.yml — the list</p>
+<pre><code>proxmox:
+  hosts:
+    pve:
+      ansible_host: "{{ pve_ip }}"
+      ansible_user: root</code></pre>
+<p>
+One group (<code>proxmox</code>), one host (<code>pve</code>), reachable at an
+address (<code>pve_ip</code>, set in your vars) as the <code>root</code> user.
+That's the entire inventory.
+</p>
+
+<p class="filename">ansible/site.yml — the plan</p>
+<pre><code>- name: Cloudio home server
+  hosts: proxmox            # &larr; which machines (a group from the inventory)
+  gather_facts: true
+
+  roles:                    # &larr; what to do to them, in order
+    - role: proxmox_base
+    - role: haos_vm
+    - role: media_lxc
+    - role: unifi_lxc</code></pre>
+<p>
+"For every host in the <code>proxmox</code> group, apply these four roles in
+order." A <strong>role</strong> is just a folder of tasks bundled for reuse —
+Lesson 6 opens one up. A <strong>task</strong> is one step; it calls one
+<strong>module</strong> (a small program like <code>apt</code> or <code>copy</code>
+that knows how to make one kind of change). You'll meet those properly in
+Lessons 4 and 7.
+</p>
+
+<h2>The idea that shapes everything: idempotency</h2>
+<p>
+Run <code>ansible-playbook site.yml</code> once, or ten times in a row — the Vaio
+ends up in the same state. Ansible checks each step before acting:
+&ldquo;when the system is in the state your playbook describes, Ansible does not
+change anything, even if the playbook runs multiple times.&rdquo;<sup><a href="#c1">1</a></sup>
+</p>
+<div class="callout watch">
+<span class="tag">Why you'll care</span>
+You will edit a role, re-run the whole playbook, see <code>changed</code> on just
+the one task you touched and <code>ok</code> on everything else, and move on. No
+"rebuild from scratch". That fast edit-and-re-run loop is only possible because
+Ansible is idempotent — and it's why cloudio chose Ansible over a pile of shell
+scripts (see <a href="../../docs/adr/0003-ansible-only-no-terraform.md">ADR-0003</a>).
+</div>
+
+<h2>What Ansible is <em>not</em>, here</h2>
+<ul>
+<li><strong>Not a service running on the Vaio.</strong> It's &ldquo;agent-less&rdquo;
+— it connects, works, disconnects.<sup><a href="#c1">1</a></sup> The Vaio never
+knows Ansible exists between runs.</li>
+<li><strong>Not a central server.</strong> The control node is just wherever you
+typed the command. Today that's your Mac.</li>
+<li><strong>Not Terraform.</strong> There's no state file describing what Ansible
+thinks it built. "Is the server correct?" is answered by running the playbook
+again and watching for <code>changed</code>.</li>
+</ul>
+
+<h2>Check yourself</h2>
+
+<div class="quiz" data-explain="The control node is simply where Ansible and the repo live and where you run the command — your MacBook.">
+<p class="quiz-q">Which machine is the control node in cloudio?</p>
+<button class="quiz-opt" data-correct>The MacBook you run commands on</button>
+<button class="quiz-opt">The Vaio you are configuring here</button>
+<button class="quiz-opt">The Hetzner Storage Box off-site</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="quiz" data-explain="Idempotent means a repeat run is a no-op where nothing needs changing — the safety property behind the edit-and-re-run loop.">
+<p class="quiz-q">"Idempotent" for <code>site.yml</code> means:</p>
+<button class="quiz-opt">Re-running it undoes the previous run</button>
+<button class="quiz-opt" data-correct>Re-running it makes no further changes</button>
+<button class="quiz-opt">Re-running it needs a wiped machine</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="quiz" data-explain="Agentless: the managed node only needs sshd and Python. Nothing Ansible-specific is installed or left running there.">
+<p class="quiz-q">What does the Vaio run so Ansible can manage it?</p>
+<button class="quiz-opt">A background Ansible agent daemon</button>
+<button class="quiz-opt" data-correct>Just an SSH server and Python</button>
+<button class="quiz-opt">A copy of the whole playbook</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="quiz" data-explain="The list of managed nodes is the inventory (ansible/inventory.yml). The playbook is the plan; a collection is a bundle of modules.">
+<p class="quiz-q">The file listing the machines to manage is the &hellip;</p>
+<button class="quiz-opt" data-correct>inventory</button>
+<button class="quiz-opt">blueprint</button>
+<button class="quiz-opt">collection</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="recall">
+<p><strong>Free recall.</strong> Without looking up, write two sentences you could
+say to your wife: what Ansible is, and why cloudio uses it.</p>
+<textarea placeholder="Type here — the act of retrieving is the point."></textarea>
+<button>Show a model answer</button>
+<div class="model" hidden>
+<p><em>One version:</em> "Ansible is a tool that logs into the server over SSH and
+sets it up to match instructions we keep as text files in git. We use it so that
+building the whole home server — Home Assistant, the containers, backups — is one
+command we can re-run any time, and so we could rebuild it on new hardware in an
+afternoon."</p>
+</div>
+</div>
+
+<div class="repo-task">
+<h3>In the repo</h3>
+<p>Open <code>ansible/inventory.yml</code> and <code>ansible/site.yml</code> side by
+side. For each line, say out loud which of the four nouns it belongs to
+(control node / managed node / inventory / playbook) or which is coming later
+(role / task / module). If any line resists that, that's your question for the
+next reply.</p>
+</div>
+
+<h2>Read next (primary source)</h2>
+<p>
+<a href="https://docs.ansible.com/projects/ansible/latest/getting_started/introduction.html"><strong>Introduction to Ansible</strong></a>
+— Ansible Community Documentation. Two screens. It's the source for every quoted
+line above. If you read one external thing this week, read this.
+</p>
+
+<p class="ask">
+Stuck on anything above — a term, a line in <code>site.yml</code>, why agentless
+matters? Ask your teacher (this Claude Code session) right now. That's the
+intended next step, not a fallback.
+</p>
+
+<div class="citations">
+<h3>Citations</h3>
+<ol>
+<li id="c1"><a href="https://docs.ansible.com/projects/ansible/latest/getting_started/introduction.html">Introduction to Ansible</a>, Ansible Community Documentation (desired state, idempotence, agentless, playbooks / YAML).</li>
+<li id="c2"><a href="https://docs.ansible.com/projects/ansible/latest/getting_started/index.html">Getting started with Ansible</a>, Ansible Community Documentation (control node, inventory, managed nodes).</li>
+</ol>
+</div>
+
+<nav class="lesson-nav">
+<span>&nbsp;</span>
+<a href="../index.html">Course home &rarr;</a>
+</nav>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>
