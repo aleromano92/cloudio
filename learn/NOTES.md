@@ -21,5 +21,16 @@
 - Viewing rendered HTML: open files locally, or enable GitHub Pages (Settings → Pages
   → deploy from `master`, `/` root) and browse at `…/learn/`.
 
+## Delivery cadence
+- Lessons delivered **one at a time, on demand**. User asks ("next lesson" or a
+  specific topic / detour); I author it, commit, push; Pages auto-deploys.
+- Before writing lesson N+1, check: did they engage with lesson N's recall check or
+  ask questions? Use that to set the difficulty and whether to write a learning record.
+- Module 1 planned order is in `index.html` (2 control node → 3 inventory →
+  4 playbook → 5 variables → 6 role anatomy → 7 modules/idempotency → 8 handlers →
+  9 templates → 10 vault → 11 running & debugging). Deviate if their questions pull elsewhere.
+
 ## Session log
 - 2026-09-07: workspace created. Mission set. Lesson 0001 (What is Ansible) authored.
+  GitHub Pages via Actions workflow (publishes learn/ as site root). Cadence set to
+  one-lesson-on-demand.
