@@ -164,7 +164,9 @@ not backed up.
 ## Remote access
 
 Tailscale on the node, the laptop, and phones. **Nothing is port-forwarded** on the
-router despite the static public IP (see ADR-0006).
+router. The public IP is publicly reachable but **dynamic** (rotates every few
+days) — irrelevant here, since Tailscale doesn't use it and needs no dynamic DNS
+(see ADR-0006).
 
 ---
 
@@ -173,9 +175,12 @@ router despite the static public IP (see ADR-0006).
 **v1 (current):** media stack + Home Assistant + UniFi controller, flat network, Tailscale, backups.
 
 **Later phases:**
-- Smart-home: integrate the wired **BTicino MyHOME** bus via an OpenWebNet IP
-  gateway (F454 / MyHOMEServer1) and the HACS OpenWebNet integration in HAOS.
-  *Pending: confirm with the electrician whether an IP gateway is installed.*
+- Smart-home: integrate the wired **BTicino MyHOME** bus into Home Assistant via
+  the HACS OpenWebNet integration. **Blocker:** the installed gateway is an
+  **F460** (Home + Control only — it does *not* speak OpenWebNet). Needs a
+  dedicated OWN gateway added alongside it (**F454**, F459/MyHOMEServer1, or MH201),
+  or a swap to F461 (which drops the Home + Control app). Decision + cost pending
+  with the electrician.
 - **Personal cloud** for documents + photos, with real redundancy.
 - **Network segmentation** — IoT/camera VLAN. Needs a real L3 gateway (UniFi
   gateway or dedicated OPNsense box — **not** the Vaio). See `docs/network-topology.md`.

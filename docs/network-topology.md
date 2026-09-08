@@ -4,7 +4,8 @@
 
 ```
                  5G LTE router (outside)
-                 static public IP, non-CGNAT, normal NAT to LAN
+                 public IP: DYNAMIC (changed 2.192.6.1 -> 2.192.6.72 over ~10 days),
+                 non-CGNAT / publicly reachable, normal NAT to LAN
                           │  1 × ethernet
                           ▼
         ┌─────────────────────────────────────────────┐
@@ -24,6 +25,10 @@
 - APs are powered by standalone PoE+ injectors (not the switch).
 - The 5G router is the only L3 device. It does **normal NAT**; the LAN is private,
   nothing is exposed unless explicitly forwarded — and nothing is forwarded.
+- The public IP is **dynamic** (rotates every few days) but that is irrelevant:
+  remote access is Tailscale-only (ADR-0006), which does not use the public IP.
+  No dynamic DNS is needed. Hygiene: confirm the router's inbound firewall is
+  default-deny and remote admin is disabled.
 
 ## Logical — v1 (flat)
 
@@ -42,7 +47,7 @@ for the future VLAN split.
 | `homeassistant` (HAOS VM) | `.11` | Static |
 | `media` (Docker LXC) | `.12` | Static |
 | `unifi` (UniFi controller LXC) | `.13` | Static |
-| BTicino OpenWebNet IP gateway | TBD | DHCP reservation once confirmed/installed |
+| BTicino OpenWebNet gateway | TBD | Installed gateway is an **F460** = Home+Control only, **no OpenWebNet**. Needs a separate OWN gateway (F454 / F459 / MH201) added alongside, or swap to F461. Smart-home phase. |
 | Reolink NVR | TBD | DHCP reservation; block from internet if switch supports ACLs |
 
 Name resolution: Tailscale MagicDNS for remote; a local hosts/DNS entry per

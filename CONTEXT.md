@@ -51,10 +51,13 @@ The laptop. Runs Ansible against the node over SSH. Never itself provisioned by
 this repo.
 _Avoid_: admin machine.
 
-**IP gateway** (in the smart-home context):
-A BTicino/Legrand OpenWebNet gateway (F454 or MyHOMEServer1) bridging the wired
-MyHOME SCS bus to the LAN, so Home Assistant can see bus devices.
-_Avoid_: bridge, hub.
+**OWN gateway** (in the smart-home context):
+A BTicino/Legrand gateway that speaks **OpenWebNet** (F454, F459/MyHOMEServer1,
+MH201, or F461) bridging the wired MyHOME SCS bus to the LAN, so Home Assistant
+can see bus devices. Note: the F460 already installed here is *not* one — it is
+Home + Control only.
+_Avoid_: IP gateway (ambiguous — the F460 is an "IP gateway" but not an OWN one),
+bridge, hub.
 
 **Off-site backup**:
 The `restic` repository on the Hetzner Storage Box. The only copy of State that
