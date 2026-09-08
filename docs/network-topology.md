@@ -27,8 +27,12 @@
   nothing is exposed unless explicitly forwarded — and nothing is forwarded.
 - The public IP is **dynamic** (rotates every few days) but that is irrelevant:
   remote access is Tailscale-only (ADR-0006), which does not use the public IP.
-  No dynamic DNS is needed. Hygiene: confirm the router's inbound firewall is
-  default-deny and remote admin is disabled.
+  No dynamic DNS is needed.
+- 2026-09-08: verified from an external 5G connection that the ZTE router's web
+  admin (port 80) on the public IP **times out** — not WAN-exposed. The admin
+  page seen from inside the LAN was NAT loopback. Re-check after the Proxmox
+  build (guard against a stray port-forward / UPnP). Router admin password to be
+  hardened as defence-in-depth.
 
 ## Logical — v1 (flat)
 
