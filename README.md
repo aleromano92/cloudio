@@ -176,11 +176,14 @@ days) — irrelevant here, since Tailscale doesn't use it and needs no dynamic D
 
 **Later phases:**
 - Smart-home: integrate the wired **BTicino MyHOME** bus into Home Assistant via
-  the HACS OpenWebNet integration. **Blocker:** the installed gateway is an
-  **F460** (Home + Control only — it does *not* speak OpenWebNet). Needs a
-  dedicated OWN gateway added alongside it (**F454**, F459/MyHOMEServer1, or MH201),
-  or a swap to F461 (which drops the Home + Control app). Decision + cost pending
-  with the electrician.
+  the HACS OpenWebNet integration. The gateway spec'd for install (week of
+  2026-09-15) was an **F460**, which is Home + Control only and does *not* speak
+  OpenWebNet. **Plan:** ask the installer to swap it for a **MyHOMEServer1** —
+  one device that does both the MyHOME_Up app and OpenWebNet, and the
+  best-proven gateway with the HA integration. **Fallback** if MyHOMEServer1
+  isn't available new: keep the F460 and add an **F461** on the bus for
+  OpenWebNet. Either way the installer must enable OpenWebNet, set a static IP,
+  and hand over the OPEN/HMAC password + the MyHOME_Suite project file.
 - **Personal cloud** for documents + photos, with real redundancy.
 - **Network segmentation** — IoT/camera VLAN. Needs a real L3 gateway (UniFi
   gateway or dedicated OPNsense box — **not** the Vaio). See `docs/network-topology.md`.

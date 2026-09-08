@@ -81,6 +81,5 @@
     msg: >-
       HAOS is booting. Finish onboarding at http://homeassistant.local:8123
       (or the VM's DHCP address). Give the VM a DHCP reservation so it stays at
-      .11, then install HACS. MyHOME integration is BLOCKED: the installed
-      BTicino gateway is an F460 (Home+Control only, no OpenWebNet). Needs an
-      OWN gateway (F454 / F459 / MH201) added, or a swap to F461 -- see README.
+      .11, then install HACS. For MyHOME you need an OpenWebNet gateway:
+      MyHOMEServer1 (preferred) or F460+F461 -- NOT the F460 alone. See README.

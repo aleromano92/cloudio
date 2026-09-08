@@ -51,7 +51,7 @@ for the future VLAN split.
 | `homeassistant` (HAOS VM) | `.11` | Static |
 | `media` (Docker LXC) | `.12` | Static |
 | `unifi` (UniFi controller LXC) | `.13` | Static |
-| BTicino OpenWebNet gateway | TBD | Installed gateway is an **F460** = Home+Control only, **no OpenWebNet**. Needs a separate OWN gateway (F454 / F459 / MH201) added alongside, or swap to F461. Smart-home phase. |
+| BTicino MyHOME gateway | TBD | Spec'd as **F460** (Home+Control only, **no OpenWebNet**). Asking installer to swap for a **MyHOMEServer1** (app + OpenWebNet in one). Fallback: F460 + **F461**. Needs static IP + OPEN/HMAC password. Smart-home phase. |
 | Reolink NVR | TBD | DHCP reservation; block from internet if switch supports ACLs |
 
 Name resolution: Tailscale MagicDNS for remote; a local hosts/DNS entry per
