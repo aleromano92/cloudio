@@ -52,12 +52,11 @@ this repo.
 _Avoid_: admin machine.
 
 **OWN gateway** (in the smart-home context):
-A BTicino/Legrand gateway that speaks **OpenWebNet** (F454, F459/MyHOMEServer1,
-MH201, or F461) bridging the wired MyHOME SCS bus to the LAN, so Home Assistant
-can see bus devices. Note: the F460 already installed here is *not* one — it is
-Home + Control only.
-_Avoid_: IP gateway (ambiguous — the F460 is an "IP gateway" but not an OWN one),
-bridge, hub.
+A BTicino/Legrand gateway that speaks **OpenWebNet**, bridging the wired MyHOME
+SCS bus to the LAN so Home Assistant can see bus devices. Here it is a
+**MyHOMEServer1** (ADR-0007), which also serves the MyHOME_Up app. Not every
+BTicino gateway qualifies — the F460, for one, is Home + Control only.
+_Avoid_: IP gateway (ambiguous), bridge, hub.
 
 **Off-site backup**:
 The `restic` repository on the Hetzner Storage Box. The only copy of State that

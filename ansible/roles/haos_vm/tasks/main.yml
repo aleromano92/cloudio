@@ -81,5 +81,5 @@
     msg: >-
       HAOS is booting. Finish onboarding at http://homeassistant.local:8123
       (or the VM's DHCP address). Give the VM a DHCP reservation so it stays at
-      .11, then install HACS. For MyHOME you need an OpenWebNet gateway:
-      MyHOMEServer1 (preferred) or F460+F461 -- NOT the F460 alone. See README.
+      .11, then install HACS. For MyHOME: add the OpenWebNet integration and
+      point it at the MyHOMEServer1's IP + OPEN/HMAC password (ADR-0007).
