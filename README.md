@@ -137,6 +137,24 @@ Re-running is safe (idempotent). Ansible drives the native `pct` / `qm` /
 `docker compose` CLIs directly — there is no Terraform and no state file; "does
 reality match the repo?" is answered by re-running the playbook (see ADR-0003).
 
+### Before the external drives arrive
+
+`base`, `haos`, and `unifi` run fully without any external storage. Run those:
+
+```bash
+ansible-playbook site.yml --ask-vault-pass --tags base,haos,unifi
+```
+
+Hold `--tags media` until the media drive is in (`media_disk_uuid` set), and keep
+`backups_enabled: false` until the local backup disk + Storage Box exist. Then:
+
+```bash
+# media drive fitted, formatted ext4, UUID in vars.yml:
+ansible-playbook site.yml --ask-vault-pass --tags storage,media
+# backup disk mounted at /mnt/backup, Storage Box created, backups_enabled: true:
+ansible-playbook site.yml --ask-vault-pass --tags backup
+```
+
 ### Hardware transcoding
 
 Jellyfin hardware transcoding (Intel Quick Sync — **H.264 only** on this CPU, no

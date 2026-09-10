@@ -6,9 +6,9 @@
 # ============================================================================
 
 # --- Node / LAN -------------------------------------------------------------
-pve_ip: "192.168.1.10"          # static IP given to Proxmox at install
-pve_gateway: "192.168.1.1"
-lan_cidr: "192.168.1.0/24"
+pve_ip: "192.168.0.10"          # static IP given to Proxmox at install
+pve_gateway: "192.168.0.1"      # verify on the pve console: `ip route show default`
+lan_cidr: "192.168.0.0/24"
 timezone: "Europe/Rome"
 
 # --- Discrete GPU ---------------------------------------------------------
@@ -20,6 +20,12 @@ blacklist_nvidia: true          # GeForce GT 740M is unused on this headless box
 # mount anything, and the media LXC's /data bind-mount will be empty.
 media_disk_uuid: "CHANGE-ME"
 media_disk_mount: "/mnt/media"  # where it mounts on the Proxmox host
+
+# --- Backups -----------------------------------------------------------
+# Leave false until BOTH the local backup disk (mounted at backup_local_path)
+# and the Hetzner Storage Box exist. Then set true and re-run --tags backup.
+# While false: no restic setup, no vzdump timer.
+backups_enabled: false
 
 # --- Local backup target -------------------------------------------------
 # A second partition / USB stick, mounted here by you. The playbook only
@@ -74,7 +80,7 @@ media_lxc_swap: 512
 media_lxc_disk_gb: 12
 media_lxc_storage: "local-lvm"
 media_lxc_bridge: "vmbr0"
-media_lxc_ip: "192.168.1.12/24"
+media_lxc_ip: "192.168.0.12/24"
 media_puid: 1000
 media_pgid: 1000
 media_appdata_services:
@@ -100,4 +106,4 @@ unifi_lxc_swap: 512
 unifi_lxc_disk_gb: 8
 unifi_lxc_storage: "local-lvm"
 unifi_lxc_bridge: "vmbr0"
-unifi_lxc_ip: "192.168.1.13/24"
+unifi_lxc_ip: "192.168.0.13/24"

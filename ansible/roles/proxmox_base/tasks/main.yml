@@ -22,4 +22,5 @@
 
 - name: Set up backups (vzdump + restic to Hetzner)
   ansible.builtin.import_tasks: backup.yml
+  when: backups_enabled | bool
   tags: ["backup"]
