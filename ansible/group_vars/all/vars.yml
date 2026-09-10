@@ -57,8 +57,11 @@ tailscale_advertise_routes: "{{ lan_cidr }}"
 tailscale_extra_args: "--accept-dns=false"
 
 # --- LXC base template ------------------------------------------------
+# Debian 12 deliberately, NOT 13: trixie dropped openjdk-17 (UniFi needs it) and
+# MongoDB's apt repo lags new Debian codenames. Bump the point release as needed
+# from `pveam available --section system | grep debian`.
 lxc_template_storage: "local"
-lxc_template_file: "debian-12-standard_12.7-1_amd64.tar.zst"   # check `pveam available`
+lxc_template_file: "debian-12-standard_12.12-1_amd64.tar.zst"
 
 # --- HAOS VM -------------------------------------------------------------
 haos_vmid: 110
@@ -68,8 +71,9 @@ haos_vm_memory: 2048
 haos_vm_bridge: "vmbr0"
 haos_vm_storage: "local-lvm"
 haos_vm_disk_size: "32G"
-# Check the latest tag: https://github.com/home-assistant/operating-system/releases
-haos_image_version: "15.0"      # CHANGE-ME to a real, current release
+# Latest stable per the releases page (verify — takes 10s):
+# https://github.com/home-assistant/operating-system/releases
+haos_image_version: "18.2"
 # haos_usb_coordinator_id: "10c4:ea60"   # only if you add a USB Zigbee stick later
 
 # --- media LXC (Docker) -----------------------------------------------
