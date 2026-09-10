@@ -7,6 +7,7 @@
   register: haos_status
   changed_when: false
   failed_when: false
+  check_mode: false
 
 - name: Create the HAOS VM
   when: haos_status.rc != 0
