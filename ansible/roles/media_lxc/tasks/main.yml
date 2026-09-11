@@ -37,11 +37,23 @@
       --rootfs {{ media_lxc_storage }}:{{ media_lxc_disk_gb }}
       --net0 name=eth0,bridge={{ media_lxc_bridge }},ip={{ media_lxc_ip }},gw={{ pve_gateway }}
       --nameserver 1.1.1.1
-      --features nesting=1,keyctl=1
+      --features nesting=1,keyctl=1,fuse=1
       --unprivileged 1
       --onboot 1
       --mp0 {{ media_disk_mount }},mp=/data,backup=0
   when: media_status.rc != 0
+
+- name: Allow Docker's overlay filesystem inside this unprivileged LXC
+  ansible.builtin.lineinfile:
+    path: "/etc/pve/lxc/{{ media_ctid }}.conf"
+    line: "lxc.apparmor.profile: unconfined"
+  register: media_apparmor_conf
+  # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
+  # Proxmox line -- verified directly against the unifi LXC. See docs/adr/0008.
+
+- name: Restart the LXC to apply the AppArmor change, if it was already running
+  ansible.builtin.command: "pct restart {{ media_ctid }}"
+  when: media_apparmor_conf.changed and media_status.rc == 0
 
 - name: Start the media LXC
   ansible.builtin.command: "pct start {{ media_ctid }}"
@@ -93,12 +105,15 @@
     dest: /root/.cloudio-media.env
     mode: "0600"
 
+- name: Copy docker-compose.yaml to the Proxmox host
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml"
+    dest: /root/.cloudio-media-compose.yaml
+    mode: "0644"
+
 - name: Push docker-compose.yaml into the container
   ansible.builtin.command:
-    cmd: >-
-      pct push {{ media_ctid }}
-      {{ playbook_dir }}/../media-stack/docker-compose.yaml
-      /opt/media-stack/docker-compose.yaml --perms 0644
+    cmd: "pct push {{ media_ctid }} /root/.cloudio-media-compose.yaml /opt/media-stack/docker-compose.yaml --perms 0644"
   changed_when: true
 
 - name: Push the rendered .env into the container
@@ -108,7 +123,9 @@
 
 - name: Bring up the media stack
   ansible.builtin.command:
-    cmd: "pct exec {{ media_ctid }} -- docker compose --project-directory /opt/media-stack up -d --remove-orphans"
+    cmd: >-
+      pct exec {{ media_ctid }} -- bash -c
+      "cd /opt/media-stack && docker compose up -d --remove-orphans"
   register: media_compose
   changed_when: >-
     'Started' in (media_compose.stderr | default('')) or

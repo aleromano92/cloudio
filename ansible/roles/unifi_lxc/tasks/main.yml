@@ -38,10 +38,22 @@
       --rootfs {{ unifi_lxc_storage }}:{{ unifi_lxc_disk_gb }}
       --net0 name=eth0,bridge={{ unifi_lxc_bridge }},ip={{ unifi_lxc_ip }},gw={{ pve_gateway }}
       --nameserver 1.1.1.1
-      --features nesting=1,keyctl=1
+      --features nesting=1,keyctl=1,fuse=1
       --unprivileged 1
       --onboot 1
   when: unifi_status.rc != 0
+
+- name: Allow Docker's overlay filesystem inside this unprivileged LXC
+  ansible.builtin.lineinfile:
+    path: "/etc/pve/lxc/{{ unifi_ctid }}.conf"
+    line: "lxc.apparmor.profile: unconfined"
+  register: unifi_apparmor_conf
+  # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
+  # Proxmox line -- verified directly, not assumed. See docs/adr/0008.
+
+- name: Restart the LXC to apply the AppArmor change, if it was already running
+  ansible.builtin.command: "pct restart {{ unifi_ctid }}"
+  when: unifi_apparmor_conf.changed and unifi_status.rc == 0
 
 - name: Start the UniFi LXC
   ansible.builtin.command: "pct start {{ unifi_ctid }}"
@@ -93,20 +105,26 @@
     dest: /root/.cloudio-unifi.env
     mode: "0600"
 
+- name: Copy docker-compose.yaml to the Proxmox host
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../unifi-stack/docker-compose.yaml"
+    dest: /root/.cloudio-unifi-compose.yaml
+    mode: "0644"
+
+- name: Copy init-mongo.sh to the Proxmox host
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../unifi-stack/init-mongo.sh"
+    dest: /root/.cloudio-unifi-init-mongo.sh
+    mode: "0755"
+
 - name: Push docker-compose.yaml into the container
   ansible.builtin.command:
-    cmd: >-
-      pct push {{ unifi_ctid }}
-      {{ playbook_dir }}/../unifi-stack/docker-compose.yaml
-      /opt/unifi-stack/docker-compose.yaml --perms 0644
+    cmd: "pct push {{ unifi_ctid }} /root/.cloudio-unifi-compose.yaml /opt/unifi-stack/docker-compose.yaml --perms 0644"
   changed_when: true
 
 - name: Push init-mongo.sh into the container
   ansible.builtin.command:
-    cmd: >-
-      pct push {{ unifi_ctid }}
-      {{ playbook_dir }}/../unifi-stack/init-mongo.sh
-      /opt/unifi-stack/init-mongo.sh --perms 0755
+    cmd: "pct push {{ unifi_ctid }} /root/.cloudio-unifi-init-mongo.sh /opt/unifi-stack/init-mongo.sh --perms 0755"
   changed_when: true
 
 - name: Push the rendered .env into the container
@@ -116,7 +134,9 @@
 
 - name: Bring up the UniFi stack
   ansible.builtin.command:
-    cmd: "pct exec {{ unifi_ctid }} -- docker compose --project-directory /opt/unifi-stack up -d --remove-orphans"
+    cmd: >-
+      pct exec {{ unifi_ctid }} -- bash -c
+      "cd /opt/unifi-stack && docker compose up -d --remove-orphans"
   register: unifi_compose
   changed_when: >-
     'Started' in (unifi_compose.stderr | default('')) or
