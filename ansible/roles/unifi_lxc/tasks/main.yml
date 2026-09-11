@@ -6,6 +6,18 @@
     cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
     creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
 
+- name: Verify the template actually landed on disk
+  ansible.builtin.stat:
+    path: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+  register: unifi_template_stat
+  failed_when: >-
+    not unifi_template_stat.stat.exists or unifi_template_stat.stat.size < 1000000
+  # A missing/near-empty file here means `pveam download` "succeeded" (exit 0)
+  # without actually placing a usable template -- often because {{ lxc_template_storage }}
+  # storage's `content` line in /etc/pve/storage.cfg doesn't include vztmpl.
+  # `pct create` would otherwise fail much later, mid-rollback, with a far more
+  # confusing error.
+
 - name: Check whether the UniFi LXC exists
   ansible.builtin.command: "pct status {{ unifi_ctid }}"
   register: unifi_status
