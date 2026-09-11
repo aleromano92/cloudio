@@ -30,7 +30,23 @@
   4 playbook → 5 variables → 6 role anatomy → 7 modules/idempotency → 8 handlers →
   9 templates → 10 vault → 11 running & debugging). Deviate if their questions pull elsewhere.
 
+## Presentation preferences (from feedback, 2026-09-11)
+- **Never write "open file X" assuming a local checkout.** The course is read on
+  GitHub Pages (and possibly a phone). Always give a clickable GitHub blob link
+  (`target="_blank"`) for any repo file referenced in a lesson task. A local
+  terminal exercise is fine *in addition*, since the user does have the repo
+  checked out and Ansible running — but the link must exist regardless.
+- **No ASCII-art diagrams in `<pre>` blocks** — box-drawing characters read as
+  "just markdown" / unstyled noise, not a real diagram. Use a hand-authored
+  inline SVG (see `artifact-diagramming` skill mechanics: viewBox, currentColor,
+  a literal accent color only on the one meaningful element, figure+figcaption).
+  Applies to both lessons and reference pages.
+
 ## Session log
 - 2026-09-07: workspace created. Mission set. Lesson 0001 (What is Ansible) authored.
   GitHub Pages via Actions workflow (publishes learn/ as site root). Cadence set to
   one-lesson-on-demand.
+- 2026-09-11: feedback on Lesson 1 (see Presentation preferences above) — fixed the
+  repo-task link and replaced the reference page's ASCII diagram with SVG. Lesson
+  0002 (ansible.cfg & collections) authored, grounded in an actual grep of the repo
+  (community.general installed but unused — ties to ADR-0003).

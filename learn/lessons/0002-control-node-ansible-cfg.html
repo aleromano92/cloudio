@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2 · The control node</title>
+<link rel="stylesheet" href="../assets/course.css">
+</head>
+<body>
+<nav class="crumb"><a href="../index.html">Course home</a> &nbsp;/&nbsp; Module 1 &nbsp;/&nbsp; 2. The control node</nav>
+<main class="wrap">
+
+<h1>The control node: <code>ansible.cfg</code> &amp; collections</h1>
+<p class="subtitle">Module 1, Lesson 2 &middot; ~7 minutes</p>
+
+<div class="callout win">
+<span class="tag">The win</span>
+By the end you can explain what <code>ansible.cfg</code> actually does, why you
+always <code>cd ansible</code> before running a command, and — with evidence from
+this repo, not a guess — which modules need a collection installed and which
+don't.
+</div>
+
+<h2>The one-sentence version</h2>
+<p>
+<code>ansible.cfg</code> is a **project's settings file** — it tells Ansible
+where the inventory, roles, and extra modules live, so you stop typing the same
+flags every time. A <strong>collection</strong> is an installable pack of extra
+modules and plugins; <strong>ansible.builtin</strong> is the set that ships with
+Ansible itself and needs nothing installed.
+</p>
+
+<h2>Why <code>cd ansible</code> matters</h2>
+<p>
+Every command you've run so far started with <code>cd ansible</code>. Here's why
+that's not just about relative file paths: Ansible looks for a config file in a
+fixed order and <strong>uses only the first one it finds — the rest are
+ignored</strong>:
+</p>
+<ol>
+<li><code>ANSIBLE_CONFIG</code> environment variable, if set</li>
+<li><code>ansible.cfg</code> in the <strong>current directory</strong></li>
+<li><code>~/.ansible.cfg</code> in your home directory</li>
+<li><code>/etc/ansible/ansible.cfg</code></li>
+</ol>
+<p>
+"Ansible will process the above list and use the first file found, all others are
+ignored."<sup><a href="#c1">1</a></sup> Run the command from anywhere else and
+cloudio's <code>ansible.cfg</code> is invisible — Ansible silently falls back to
+built-in defaults instead.
+</p>
+
+<h2>cloudio's <code>ansible.cfg</code>, line by line</h2>
+
+<p class="filename">ansible/ansible.cfg</p>
+<pre><code>[defaults]
+inventory = inventory.yml
+roles_path = roles
+collections_path = collections
+host_key_checking = True
+retry_files_enabled = False
+interpreter_python = auto_silent
+timeout = 30
+
+[ssh_connection]
+pipelining = True</code></pre>
+
+<table style="width:100%; border-collapse:collapse; font-size:0.9rem; margin:1rem 0;">
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0; width:11rem;"><code>inventory</code></td><td>The default inventory file — no <code>-i</code> flag needed on every command.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>roles_path</code></td><td>Where role <em>folders</em> are searched for. It's why <code>site.yml</code> can say <code>role: proxmox_base</code> and Ansible finds <code>roles/proxmox_base/</code>.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>collections_path</code></td><td>Installed collections live in <code>ansible/collections/</code> — project-local and gitignored — instead of the global <code>~/.ansible/collections</code>. Clone the repo on a new machine, get exactly these versions.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>host_key_checking</code></td><td><strong>True</strong> — refuse to connect if the host's SSH key isn't already trusted. This is exactly why Phase 0 had you run <code>ssh root@&lt;ip&gt;</code> by hand once before Ansible would touch the box.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>retry_files_enabled</code></td><td>False — don't litter a <code>.retry</code> file listing failed hosts after a bad run. Not useful for a one-host repo.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>interpreter_python</code></td><td>auto_silent — auto-detect which Python binary to use on <code>pve</code>, without warning spam.</td></tr>
+<tr style="border-bottom:1px solid var(--rule);"><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>timeout</code></td><td>SSH connection timeout, in seconds.</td></tr>
+<tr><td style="padding:0.45rem 0.6rem 0.45rem 0;"><code>pipelining</code></td><td>True — fewer SSH round-trips per task, so runs are noticeably faster.</td></tr>
+</table>
+
+<h2>Collections &amp; FQCNs</h2>
+<p>
+"Collections are a distribution format for Ansible content that can include
+playbooks, roles, modules, and plugins."<sup><a href="#c2">2</a></sup> Every module
+is referred to by its <strong>fully-qualified collection name</strong>:
+<code>namespace.collection.module</code> — e.g. <code>ansible.posix.mount</code>.
+</p>
+<p>
+<code>ansible.builtin</code> is the one namespace that's special: those modules
+ship inside Ansible itself.<sup><a href="#c3">3</a></sup> No install, ever. Anything
+else — <code>ansible.posix.*</code>, <code>community.general.*</code> — has to be
+installed first, which is what <code>requirements.yml</code> is for:
+</p>
+
+<p class="filename">ansible/requirements.yml</p>
+<pre><code>collections:
+  - name: ansible.posix
+    version: ">=1.5.0"
+  - name: community.general
+    version: ">=8.0.0"</code></pre>
+
+<p>
+<code>ansible-galaxy collection install -r requirements.yml</code> reads this and
+installs both, pinned, into <code>ansible/collections/</code> (per
+<code>collections_path</code> above). Skip it, and the first task that needs
+<code>ansible.posix.mount</code> fails with "couldn't resolve module" — the
+playbook doesn't silently work around a missing collection.
+</p>
+
+<h2>The reveal: what's actually used</h2>
+<p>
+Two collections are installed. How much of each does the repo actually call? This
+is measured, not guessed — every FQCN across all four roles, counted:
+</p>
+<pre><code>$ grep -rhoE '\b(ansible\.builtin|ansible\.posix|community\.general)\.[a-zA-Z_]+' roles/ \
+    | sort | uniq -c | sort -rn
+
+  28 ansible.builtin.command
+   6 ansible.builtin.import_tasks
+   5 ansible.builtin.template
+   4 ansible.builtin.systemd
+   4 ansible.builtin.debug
+   3 ansible.builtin.shell
+   3 ansible.builtin.replace
+   3 ansible.builtin.get_url
+   3 ansible.builtin.file
+   3 ansible.builtin.apt
+   2 ansible.builtin.copy
+   1 ansible.posix.sysctl
+   1 ansible.posix.mount
+   1 ansible.builtin.pipe
+   1 ansible.builtin.known_hosts
+   1 ansible.builtin.apt_repository
+</code></pre>
+<div class="callout watch">
+<span class="tag">Notice</span>
+<code>community.general</code> — installed, pinned in <code>requirements.yml</code> —
+has <strong>zero</strong> uses. Every task is <code>ansible.builtin</code> (mostly
+<code>command</code>, driving <code>pct</code>/<code>qm</code>/<code>docker</code>
+directly) plus exactly two calls into <code>ansible.posix</code> (a mount, a
+sysctl). This is <a href="https://github.com/aleromano92/cloudio/blob/master/docs/adr/0003-ansible-only-no-terraform.md">ADR-0003</a>
+made visible: the repo chose native CLIs over Proxmox-specific modules — so the
+collection built for that never got used. It stays installed for when the repo
+does need it.
+</div>
+
+<h2>Check yourself</h2>
+
+<div class="quiz" data-explain="Only the first config file Ansible finds is used — the rest are ignored outright, never merged.">
+<p class="quiz-q">You have both <code>~/.ansible.cfg</code> and a project <code>ansible.cfg</code> in the current directory. Which one applies?</p>
+<button class="quiz-opt" data-correct>Only the current-directory one</button>
+<button class="quiz-opt">Only the home-directory one</button>
+<button class="quiz-opt">Both are merged into one</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="quiz" data-explain="community.general is installed per requirements.yml but zero tasks in the repo actually reference it — every module call is ansible.builtin plus two ansible.posix ones.">
+<p class="quiz-q">In this repo, which installed collection has zero tasks using it?</p>
+<button class="quiz-opt">ansible.posix</button>
+<button class="quiz-opt">ansible.builtin</button>
+<button class="quiz-opt" data-correct>community.general</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="quiz" data-explain="host_key_checking = True refuses to connect to an untrusted host key — so you had to accept it by hand once, the normal way SSH works, before Ansible's first connection.">
+<p class="quiz-q">Why did Phase 0 have you run <code>ssh root@&lt;ip&gt;</code> once, by hand?</p>
+<button class="quiz-opt" data-correct>To pre-trust the host's SSH key</button>
+<button class="quiz-opt">To pre-install Ansible on the host</button>
+<button class="quiz-opt">To pre-download the LXC template</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="quiz" data-explain="roles_path is the search path for role folders — it's what lets site.yml say `role: proxmox_base` and have Ansible find roles/proxmox_base/. inventory and collections_path do the analogous job for the other two.">
+<p class="quiz-q">What does <code>roles_path</code> in <code>ansible.cfg</code> control?</p>
+<button class="quiz-opt" data-correct>Where role folders are searched for</button>
+<button class="quiz-opt">Where the inventory file lives</button>
+<button class="quiz-opt">Where installed collections are stored</button>
+<p class="quiz-fb" hidden></p>
+</div>
+
+<div class="recall">
+<p><strong>Free recall.</strong> Two sentences, no looking back: what is
+<code>ansible.cfg</code> for, and why does cloudio keep its collections inside the
+project folder instead of your Mac's global <code>~/.ansible</code>?</p>
+<textarea placeholder="Type here — retrieving it is the point."></textarea>
+<button>Show a model answer</button>
+<div class="model" hidden>
+<p><em>One version:</em> "ansible.cfg is the project's settings file — it tells
+Ansible where to find the inventory, the roles, and the installed extra modules,
+so we don't retype those paths every run. We keep the extra modules inside the
+project folder, not a global one, so cloning this repo onto any machine gets the
+exact pinned versions it needs — not whatever happens to already be installed."</p>
+</div>
+</div>
+
+<div class="repo-task">
+<h3>In the repo</h3>
+<p>Open
+<a href="https://github.com/aleromano92/cloudio/blob/master/ansible/ansible.cfg" target="_blank" rel="noopener">ansible.cfg</a>
+and
+<a href="https://github.com/aleromano92/cloudio/blob/master/ansible/requirements.yml" target="_blank" rel="noopener">requirements.yml</a>
+in two tabs and match each line to something above.</p>
+<p>Then, since you already have the repo checked out and Ansible running — reproduce
+the reveal yourself:</p>
+<pre><code>cd ansible
+grep -rhoE '\b(ansible\.builtin|ansible\.posix|community\.general)\.[a-zA-Z_]+' roles/ \
+  | sort | uniq -c | sort -rn</code></pre>
+<p>Does your output match the table above? (It should — nothing's changed since.)</p>
+</div>
+
+<h2>Read next (primary sources)</h2>
+<p>
+<a href="https://docs.ansible.com/ansible/latest/reference_appendices/config.html"><strong>Ansible Configuration Settings</strong></a>
+— the config-file precedence rule quoted above, plus every other setting
+<code>ansible.cfg</code> can hold.<br>
+<a href="https://docs.ansible.com/ansible/latest/collections_guide/index.html"><strong>Using collections</strong></a>
+— what a collection is and how they're versioned and shared.
+</p>
+
+<p class="ask">
+Anything in the reveal surprise you, or want to dig into one of the
+<code>ansible.builtin</code> modules from the grep output before moving on? Ask now
+— that's what this space is for.
+</p>
+
+<div class="citations">
+<h3>Citations</h3>
+<ol>
+<li id="c1"><a href="https://docs.ansible.com/ansible/latest/reference_appendices/config.html">Ansible Configuration Settings</a> — config file precedence, "the first file found, all others are ignored".</li>
+<li id="c2"><a href="https://docs.ansible.com/ansible/latest/collections_guide/index.html">Using collections</a> — Ansible Community Documentation, collection definition.</li>
+<li id="c3"><a href="https://docs.ansible.com/ansible/latest/collections/ansible/builtin/index.html">ansible.builtin collection index</a> — the modules that ship with Ansible core.</li>
+</ol>
+</div>
+
+<nav class="lesson-nav">
+<a href="0001-what-is-ansible.html">&larr; 1. What is Ansible?</a>
+<a href="../index.html">Course home</a>
+</nav>
+
+</main>
+<script src="../assets/quiz.js"></script>
+</body>
+</html>

@@ -17,6 +17,10 @@ Knowledge is drawn from here, not from memory. Wisdom comes from the communities
   Variable precedence, `group_vars/all`, templating. Use for: the `group_vars` lesson.
 - [Encrypting content with Ansible Vault](https://docs.ansible.com/ansible/latest/vault_guide/index.html)
   Use for: the `vault.yml` lesson.
+- [Ansible Configuration Settings](https://docs.ansible.com/ansible/latest/reference_appendices/config.html)
+  Config-file discovery order, every `ansible.cfg` setting. Use for: Lesson 2.
+- [Using collections](https://docs.ansible.com/ansible/latest/collections_guide/index.html)
+  What a collection is, `requirements.yml`, FQCNs. Use for: Lesson 2.
 - [Templating (Jinja2)](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_templating.html)
   Use for: the `.j2` template lessons (restic script, ssh config, systemd units).
 - [Error handling — `changed_when`, `failed_when`, `creates`, handlers](https://docs.ansible.com/ansible/latest/playbook_guide/playbooks_error_handling.html)
