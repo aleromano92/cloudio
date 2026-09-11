@@ -36,7 +36,7 @@ One Proxmox node (`pve`) hosting:
 |---|---|---|
 | `homeassistant` | VM (HAOS, 2 GB / 2 vCPU) | Home Assistant OS with Supervisor + add-ons |
 | `media` | LXC (Docker) | Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr, qBittorrent via `docker-compose` |
-| `unifi` | LXC (native) | UniFi Network Application (controller for the U7 Pro Wall APs) |
+| `unifi` | LXC (Docker) | UniFi Network Application + a dedicated MongoDB (controller for the U7 Pro Wall APs) |
 
 Room is reserved for a 4th guest later: the personal-cloud phase (documents + photos, with real redundancy).
 
@@ -79,9 +79,13 @@ cloudio/
 │       │                       #   Tailscale, restic + nightly vzdump timer
 │       ├── haos_vm/            # download HAOS image, qm create/import, start
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
-│       └── unifi_lxc/          # pct create, install UniFi (MongoDB 7 + OpenJDK 17)
-└── media-stack/
-    ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
+│       └── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
+├── media-stack/
+│   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
+│   └── .env.example
+└── unifi-stack/
+    ├── docker-compose.yaml     # unifi-network-application + a dedicated MongoDB
+    ├── init-mongo.sh           # from linuxserver.io's docs; creates the Mongo user
     └── .env.example
 ```
 

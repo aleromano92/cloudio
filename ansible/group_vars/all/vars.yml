@@ -102,13 +102,19 @@ media_data_subdirs:
   - media/music
   - downloads
 
-# --- UniFi LXC (native) ---------------------------------------------
+# --- UniFi LXC (Docker: unifi-network-application + a dedicated Mongo) -----
 unifi_ctid: 113
 unifi_hostname: "unifi"
 unifi_lxc_cores: 2
 unifi_lxc_memory: 2048
 unifi_lxc_swap: 512
-unifi_lxc_disk_gb: 8
+unifi_lxc_disk_gb: 16          # Docker images + Mongo's WiredTiger data add up
 unifi_lxc_storage: "local-lvm"
 unifi_lxc_bridge: "vmbr0"
 unifi_lxc_ip: "192.168.0.13/24"
+unifi_puid: 1000
+unifi_pgid: 1000
+unifi_mongo_root_user: "root"
+unifi_mongo_user: "unifi"
+unifi_mongo_dbname: "unifi"
+unifi_mongo_authsource: "admin"

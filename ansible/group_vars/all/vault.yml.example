@@ -17,3 +17,9 @@ vault_tailscale_auth_key: "tskey-auth-XXXXXXXXXXXXXXXX"
 # restic repository password. Generate a long random string and STORE IT IN
 # YOUR PASSWORD MANAGER. Lose it and the off-site backups are unrecoverable.
 vault_restic_password: "generate-a-long-random-passphrase"
+
+# UniFi's dedicated MongoDB — two separate random strings, saved in your
+# password manager too (though these are less catastrophic to lose: worst
+# case is recreating the LXC).
+vault_unifi_mongo_root_password: "generate-a-long-random-passphrase"
+vault_unifi_mongo_user_password: "generate-a-long-random-passphrase"
