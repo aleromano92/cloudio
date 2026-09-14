@@ -142,6 +142,51 @@
     'Started' in (unifi_compose.stderr | default('')) or
     'Created' in (unifi_compose.stderr | default(''))
 
+- name: Compute the UniFi LXC's bare IP (no CIDR suffix)
+  ansible.builtin.set_fact:
+    unifi_bare_ip: "{{ unifi_lxc_ip | regex_replace('/.*$', '') }}"
+
+- name: Wait for the UniFi app to generate its system.properties
+  ansible.builtin.command: "pct exec {{ unifi_ctid }} -- test -f /opt/appdata/unifi/data/system.properties"
+  register: unifi_sysprops_exists
+  until: unifi_sysprops_exists.rc == 0
+  retries: 24
+  delay: 5
+  changed_when: false
+  failed_when: false
+
+- name: Ensure the UniFi Host Inform IP (system_ip) is set correctly
+  ansible.builtin.shell:
+    cmd: |
+      pct exec {{ unifi_ctid }} -- bash -c '
+        f=/opt/appdata/unifi/data/system.properties
+        want="system_ip={{ unifi_bare_ip }}"
+        if grep -qxF "$want" "$f" 2>/dev/null; then
+          echo UNCHANGED
+        elif grep -q "^system_ip=" "$f" 2>/dev/null; then
+          sed -i "s/^system_ip=.*/$want/" "$f"
+          echo CHANGED
+        else
+          echo "$want" >> "$f"
+          echo CHANGED
+        fi
+      '
+  register: unifi_sysip_fix
+  when: unifi_sysprops_exists.rc == 0
+  changed_when: "'CHANGED' in unifi_sysip_fix.stdout"
+  # Left unset, the app auto-detects its own address for internal provisioning
+  # references -- inside Docker that often resolves to the container's internal
+  # bridge IP (e.g. 172.18.0.2), which an AP can never reach. Devices then check
+  # in fine (the published port works) but adoption hangs forever at
+  # adopted:true / adoption_completed:false. Found by testing directly against
+  # the real box, not assumed: verify with `docker logs unifi-network-application`
+  # for repeated "ucore/manifest ... Connection refused" (a harmless red herring)
+  # alongside "Device adoption - process not finished. Reason: timeout".
+
+- name: Restart the UniFi app container if system_ip was just set
+  ansible.builtin.command: "pct exec {{ unifi_ctid }} -- docker restart unifi-network-application"
+  when: unifi_sysip_fix.changed | default(false)
+
 - name: Next steps for UniFi
   ansible.builtin.debug:
     msg: >-
