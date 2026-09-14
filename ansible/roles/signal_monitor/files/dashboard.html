@@ -19,6 +19,9 @@
   .legend span { margin-right: 14px; }
   .swatch { display: inline-block; width: 8px; height: 8px; margin-right: 4px; }
   .hint { font-size: 11px; color: #666; margin: -2px 0 8px; }
+  .pt { transition: r 0.1s ease; cursor: pointer; }
+  .pt:hover { r: 5.5; }
+  .threshold-label { font-size: 9px; }
 
   .info { position: relative; display: inline-block; width: 12px; height: 12px; margin-left: 4px;
     border: 1px solid #666; border-radius: 50%; color: #888; font-size: 9px; line-height: 11px;
@@ -74,9 +77,12 @@
       }));
     }
 
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const CHART_W = 900, CHART_H = 180, CHART_PAD = 34;
+
     function drawLine(svg, points, color) {
       if (points.length < 2) return;
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      const path = document.createElementNS(SVG_NS, "polyline");
       path.setAttribute("points", points.map(p => p.join(",")).join(" "));
       path.setAttribute("fill", "none");
       path.setAttribute("stroke", color);
@@ -84,7 +90,52 @@
       svg.appendChild(path);
     }
 
-    const CHART_W = 900, CHART_H = 180, CHART_PAD = 34;
+    // One small circle per real sample, each carrying a native <title> so
+    // hovering shows the exact value + timestamp -- the axis alone only
+    // gives you the two end labels, not what any point actually is.
+    function drawPoints(svg, samples, key, scale, color, seriesLabel, unit) {
+      const n = samples.length;
+      samples.forEach((s, i) => {
+        const v = s[key];
+        if (v == null || isNaN(v)) return;
+        const x = CHART_PAD + (i / (n - 1)) * (CHART_W - CHART_PAD * 2);
+        const y = CHART_H - CHART_PAD - ((v - scale.min) / scale.range) * (CHART_H - CHART_PAD * 2);
+        const c = document.createElementNS(SVG_NS, "circle");
+        c.setAttribute("class", "pt");
+        c.setAttribute("cx", x.toFixed(1));
+        c.setAttribute("cy", y.toFixed(1));
+        c.setAttribute("r", "3");
+        c.setAttribute("fill", color);
+        const title = document.createElementNS(SVG_NS, "title");
+        title.textContent = `${seriesLabel}: ${fmt(v)} ${unit}\n${new Date(s.timestamp).toLocaleString()}`;
+        c.appendChild(title);
+        svg.appendChild(c);
+      });
+    }
+
+    // A dashed reference line at a meaningful domain threshold (e.g. the
+    // "weak" boundary for RSRP) -- drawn first so the data line and its
+    // points render on top of it.
+    function drawThreshold(svg, scale, value, label, color) {
+      if (value == null || value < scale.min || value > scale.max) return;
+      const y = CHART_H - CHART_PAD - ((value - scale.min) / scale.range) * (CHART_H - CHART_PAD * 2);
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", CHART_PAD); line.setAttribute("x2", CHART_W - 4);
+      line.setAttribute("y1", y.toFixed(1)); line.setAttribute("y2", y.toFixed(1));
+      line.setAttribute("stroke", color);
+      line.setAttribute("stroke-width", "1");
+      line.setAttribute("stroke-dasharray", "4,3");
+      line.setAttribute("opacity", "0.6");
+      svg.appendChild(line);
+      const t = document.createElementNS(SVG_NS, "text");
+      t.setAttribute("class", "threshold-label");
+      t.setAttribute("x", CHART_W - 6);
+      t.setAttribute("y", (y - 3).toFixed(1));
+      t.setAttribute("fill", color);
+      t.setAttribute("text-anchor", "end");
+      t.textContent = label;
+      svg.appendChild(t);
+    }
 
     function fmt(v) { return Math.round(v * 10) / 10; }
 
@@ -136,11 +187,13 @@
     // range when they're the same unit; different units get separate charts
     // entirely rather than a dual axis, which was clearer to mislabel than
     // to read correctly.
-    function drawFixedChart(svgEl, samples, series, range) {
+    function drawFixedChart(svgEl, samples, series, range, thresholds) {
       svgEl.innerHTML = "";
       if (!hasEnoughData(samples, series.map(s => s.key))) { emptyChart(svgEl); return; }
       const scale = { min: range.min, max: range.max, range: range.max - range.min };
+      (thresholds || []).forEach(t => drawThreshold(svgEl, scale, t.value, t.label, t.color));
       series.forEach(s => drawLine(svgEl, pointsFor(samples, s.key, scale), s.color));
+      series.forEach(s => drawPoints(svgEl, samples, s.key, scale, s.color, s.label, s.unit));
       axisLabels(svgEl, scale, series.length === 1 ? series[0].color : "#888", "left");
     }
 
@@ -179,15 +232,25 @@
       ].join("");
 
       drawFixedChart(document.getElementById("throughputChart"), samples, [
-        { key: "downloadMbps", color: "#4fc3a1" },
-        { key: "uploadMbps", color: "#c78a3d" },
+        { key: "downloadMbps", color: "#4fc3a1", label: "download", unit: "Mbps" },
+        { key: "uploadMbps", color: "#c78a3d", label: "upload", unit: "Mbps" },
       ], { min: 0, max: 700 });
 
       drawFixedChart(document.getElementById("rsrpChart"), samples,
-        [{ key: "nrRsrp", color: "#4fc3a1" }], { min: -120, max: -60 });
+        [{ key: "nrRsrp", color: "#4fc3a1", label: "NR RSRP", unit: "dBm" }],
+        { min: -120, max: -60 },
+        [
+          { value: -80, label: "strong ↑", color: "#5fa88f" },
+          { value: -100, label: "weak ↓", color: "#b1544a" },
+        ]);
 
       drawFixedChart(document.getElementById("sinrChart"), samples,
-        [{ key: "nrSinr", color: "#c78a3d" }], { min: -10, max: 30 });
+        [{ key: "nrSinr", color: "#c78a3d", label: "NR SINR", unit: "dB" }],
+        { min: -10, max: 30 },
+        [
+          { value: 13, label: "good ↑", color: "#5fa88f" },
+          { value: 0, label: "poor ↓", color: "#b1544a" },
+        ]);
     }
 
     load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });
