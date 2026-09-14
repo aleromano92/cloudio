@@ -10,6 +10,15 @@ pve_ip: "192.168.0.10"          # static IP given to Proxmox at install
 pve_gateway: "192.168.0.1"      # new house router (moved 2026-09-14)
 lan_cidr: "192.168.0.0/24"
 timezone: "Europe/Rome"
+# Used for the host's own /etc/resolv.conf AND every LXC's --nameserver.
+# Deliberately points at the router itself (derived from pve_gateway, not a
+# second hardcoded IP) rather than public resolvers -- this house is
+# considered permanent, and any future router swap happens with physical
+# access anyway (a `sed` across vars.yml + this file covers it). The
+# Proxmox installer originally wrote this once at install time and never
+# re-derived it, which is what went stale across the last house move.
+dns_nameservers:
+  - "{{ pve_gateway }}"
 
 # --- Discrete GPU ---------------------------------------------------------
 blacklist_nvidia: true          # GeForce GT 740M is unused on this headless box
@@ -117,3 +126,29 @@ unifi_mongo_root_user: "root"
 unifi_mongo_user: "unifi"
 unifi_mongo_dbname: "unifi"
 unifi_mongo_authsource: "admin"
+
+# --- 5G/LTE signal + speedtest monitoring ---------------------------------
+# Samples every signal_monitor_interval_minutes to signal_log_dir/metrics.jsonl,
+# plus a daily digest under signal_log_dir/digests/ (file always written;
+# email only if signal_email_enabled).
+signal_monitor_enabled: true
+signal_monitor_interval_minutes: 30
+signal_log_dir: "/var/log/cloudio-signal"
+
+# ZTE MC801A router polling (login via goform_set_cmd_process, hashed
+# client-side). Leave false until vault_zte_router_password is the real
+# admin password -- the router locks logins out after 5 failed attempts
+# (MAX_LOGIN_COUNT), and this runs unattended.
+zte_router_enabled: false
+zte_router_ip: "192.168.0.1"
+
+# Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.
+# a Gmail app password) -- the text digest under signal_log_dir/digests/
+# always gets written regardless of this.
+signal_email_enabled: false
+signal_email_to: "CHANGE-ME@example.com"
+signal_email_from: "cloudio@pve.local"
+signal_email_smtp_host: "CHANGE-ME"          # e.g. smtp.gmail.com
+signal_email_smtp_port: 587
+signal_email_smtp_user: "CHANGE-ME"
+signal_digest_calendar: "*-*-* 08:00:00"     # systemd OnCalendar expression

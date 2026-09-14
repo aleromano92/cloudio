@@ -1,0 +1,76 @@
+#!/bin/bash
+# Managed by Ansible (signal_monitor role). Appends one JSON line per run to
+# {{ signal_log_dir }}/metrics.jsonl: ZTE MC801A 5G/LTE signal + a speedtest
+# sample. Best-effort -- a failure in one half still logs the other half,
+# and this must never spam MAX_LOGIN_COUNT lockouts on the router (see the
+# zte_router_enabled gate below, baked in at template time on purpose).
+set -uo pipefail
+
+export OPENSSL_CONF=/etc/cloudio-signal-monitor/openssl-legacy.cnf
+ENV_FILE=/etc/cloudio-signal-monitor.env
+# shellcheck disable=SC1090
+[ -r "$ENV_FILE" ] && . "$ENV_FILE"
+
+ROUTER_IP="{{ zte_router_ip }}"
+LOG_DIR="{{ signal_log_dir }}"
+LOG_FILE="$LOG_DIR/metrics.jsonl"
+mkdir -p "$LOG_DIR"
+
+TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+HDRS=(
+  -H "Accept: application/json, text/javascript, */*; q=0.01"
+  -H "Referer: https://${ROUTER_IP}/"
+  -H "X-Requested-With: XMLHttpRequest"
+  -H "User-Agent: ${UA}"
+)
+
+{% if zte_router_enabled %}
+zte_json='null'
+if [ -n "${ZTE_PASSWORD:-}" ]; then
+  LD_RAW=$(curl -sk --connect-timeout 8 --max-time 15 "${HDRS[@]}" -b 'stok=""' \
+    "https://${ROUTER_IP}/goform/goform_get_cmd_process?isTest=false&cmd=LD&_=$(date +%s%3N)")
+  LD=$(printf '%s' "$LD_RAW" | jq -r '.LD // empty' 2>/dev/null)
+
+  if [ -n "$LD" ]; then
+    HASH1=$(printf '%s' "$ZTE_PASSWORD" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
+    HASH2=$(printf '%s' "${HASH1}${LD}" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
+    JAR=$(mktemp)
+
+    LOGIN_RESP=$(curl -sk -c "$JAR" -X POST "https://${ROUTER_IP}/goform/goform_set_cmd_process" \
+      "${HDRS[@]}" -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" -b 'stok=""' \
+      --connect-timeout 8 --max-time 15 \
+      --data "isTest=false&goformId=LOGIN&password=${HASH2}")
+
+    if printf '%s' "$LOGIN_RESP" | jq -e '.result == "0"' >/dev/null 2>&1; then
+      SIG_RESP=$(curl -sk -b "$JAR" "${HDRS[@]}" --connect-timeout 8 --max-time 15 \
+        "https://${ROUTER_IP}/goform/goform_get_cmd_process?multi_data=1&cmd=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr")
+      zte_json=$(printf '%s' "$SIG_RESP" | jq -c '. + {login_ok: true}' 2>/dev/null || echo null)
+    else
+      zte_json=$(jq -nc '{login_ok: false, error: "login_failed"}')
+    fi
+    rm -f "$JAR"
+  else
+    zte_json=$(jq -nc '{login_ok: false, error: "ld_empty"}')
+  fi
+else
+  zte_json=$(jq -nc '{login_ok: false, error: "no_password_configured"}')
+fi
+{% else %}
+zte_json=$(jq -nc '{login_ok: false, error: "disabled"}')
+{% endif %}
+
+speedtest_json='null'
+ST_RAW=$(speedtest-cli --json --secure 2>/dev/null)
+if [ -n "$ST_RAW" ]; then
+  speedtest_json=$(printf '%s' "$ST_RAW" | jq -c '{
+    ping_ms: .ping,
+    download_mbps: (.download / 1000000),
+    upload_mbps: (.upload / 1000000),
+    server: .server.sponsor,
+    server_location: .server.name
+  }' 2>/dev/null || echo null)
+fi
+
+jq -nc --arg ts "$TS" --argjson zte "$zte_json" --argjson speedtest "$speedtest_json" \
+  '{timestamp: $ts, zte: $zte, speedtest: $speedtest}' >> "$LOG_FILE"

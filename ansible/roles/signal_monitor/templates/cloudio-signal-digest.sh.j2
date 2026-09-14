@@ -1,0 +1,54 @@
+#!/bin/bash
+# Managed by Ansible (signal_monitor role). Summarises the last 24h of
+# metrics.jsonl into a text file, and -- if signal_email_enabled -- emails it.
+set -uo pipefail
+
+LOG_FILE="{{ signal_log_dir }}/metrics.jsonl"
+OUT_DIR="{{ signal_log_dir }}/digests"
+mkdir -p "$OUT_DIR"
+
+TODAY=$(date -u +%Y-%m-%d)
+SINCE=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+OUT_FILE="$OUT_DIR/${TODAY}.txt"
+
+if [ ! -s "$LOG_FILE" ]; then
+  echo "cloudio signal digest — no data yet at $LOG_FILE" > "$OUT_FILE"
+else
+  jq -s --arg since "$SINCE" '
+    def avg(f):
+      (map(f) | map(select(. != null)) | map(if type == "string" then tonumber else . end)) as $v
+      | if ($v | length) > 0 then ($v | add / length) else null end;
+
+    map(select(.timestamp >= $since)) as $r
+    | {
+        samples: ($r | length),
+        zte_login_failures: ($r | map(select(.zte.login_ok != true)) | length),
+        lte_rsrp_avg: ($r | avg(.zte.lte_rsrp)),
+        nr_sinr_avg: ($r | avg(.zte.Z5g_SINR)),
+        download_mbps_avg: ($r | avg(.speedtest.download_mbps)),
+        upload_mbps_avg: ($r | avg(.speedtest.upload_mbps)),
+        ping_ms_avg: ($r | avg(.speedtest.ping_ms)),
+        speedtest_failures: ($r | map(select(.speedtest == null)) | length)
+      }
+  ' "$LOG_FILE" > "${OUT_FILE}.json" 2>/dev/null
+
+  jq -r --arg today "$TODAY" '
+    "cloudio signal digest — last 24h (" + $today + ")",
+    "samples: \(.samples)  (zte login failures: \(.zte_login_failures), speedtest failures: \(.speedtest_failures))",
+    "LTE RSRP avg: \(.lte_rsrp_avg // "n/a") dBm",
+    "NR  SINR avg: \(.nr_sinr_avg // "n/a") dB",
+    "download avg: \(.download_mbps_avg // "n/a") Mbps",
+    "upload avg:   \(.upload_mbps_avg // "n/a") Mbps",
+    "ping avg:     \(.ping_ms_avg // "n/a") ms"
+  ' "${OUT_FILE}.json" > "$OUT_FILE" 2>/dev/null || echo "cloudio signal digest — failed to summarise $LOG_FILE" > "$OUT_FILE"
+fi
+
+{% if signal_email_enabled %}
+{
+  echo "From: {{ signal_email_from }}"
+  echo "To: {{ signal_email_to }}"
+  echo "Subject: cloudio signal digest — ${TODAY}"
+  echo
+  cat "$OUT_FILE"
+} | msmtp --file=/etc/cloudio-signal-monitor/msmtprc -a default "{{ signal_email_to }}"
+{% endif %}

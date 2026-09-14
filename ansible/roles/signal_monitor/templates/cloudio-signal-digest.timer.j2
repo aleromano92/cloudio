@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the cloudio signal digest daily
+
+[Timer]
+OnCalendar={{ signal_digest_calendar }}
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,4 @@
+search home.arpa
+{% for ns in dns_nameservers %}
+nameserver {{ ns }}
+{% endfor %}

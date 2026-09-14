@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the cloudio signal monitor every {{ signal_monitor_interval_minutes }} minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec={{ signal_monitor_interval_minutes }}min
+Persistent=true
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

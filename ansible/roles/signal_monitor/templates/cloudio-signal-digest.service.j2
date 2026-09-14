@@ -1,0 +1,7 @@
+[Unit]
+Description=cloudio signal digest (daily summary)
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudio-signal-digest.sh

@@ -1,4 +1,8 @@
 ---
+- name: Set the host's DNS resolvers
+  ansible.builtin.import_tasks: dns.yml
+  tags: ["dns"]
+
 - name: Switch Proxmox apt to the no-subscription repo
   ansible.builtin.import_tasks: apt_repos.yml
   tags: ["apt"]

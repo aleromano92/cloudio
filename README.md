@@ -79,7 +79,8 @@ cloudio/
 │       │                       #   Tailscale, restic + nightly vzdump timer
 │       ├── haos_vm/            # download HAOS image, qm create/import, start
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
-│       └── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
+│       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
+│       └── signal_monitor/     # 30-min 5G signal + speedtest sampling, daily digest
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
 │   └── .env.example
@@ -134,6 +135,7 @@ ansible-playbook site.yml --ask-vault-pass --tags base       # just the host
 ansible-playbook site.yml --ask-vault-pass --tags haos       # just the HA VM
 ansible-playbook site.yml --ask-vault-pass --tags media
 ansible-playbook site.yml --ask-vault-pass --tags unifi
+ansible-playbook site.yml --ask-vault-pass --tags monitoring
 ansible-playbook site.yml --ask-vault-pass --check           # dry run
 ```
 
@@ -157,6 +159,25 @@ Hold `--tags media` until the media drive is in (`media_disk_uuid` set), and kee
 ansible-playbook site.yml --ask-vault-pass --tags storage,media
 # backup disk mounted at /mnt/backup, Storage Box created, backups_enabled: true:
 ansible-playbook site.yml --ask-vault-pass --tags backup
+```
+
+### 5G/LTE signal + speedtest monitoring
+
+The `signal_monitor` role samples the ZTE MC801A's signal metrics plus a
+speedtest every `signal_monitor_interval_minutes` (default 30) to
+`/var/log/cloudio-signal/metrics.jsonl` on `pve`, and writes a daily text
+digest to `signal_log_dir/digests/`. Both toggles below start **off**:
+
+- `zte_router_enabled: false` — the router locks logins out after 5 failed
+  attempts. Set `vault_zte_router_password` to the real admin password first,
+  then flip this to `true`.
+- `signal_email_enabled: false` — the digest file is always written; email
+  additionally needs an SMTP relay (`signal_email_smtp_*` vars +
+  `vault_signal_email_smtp_password`, e.g. a Gmail app password).
+
+```bash
+tail -f /var/log/cloudio-signal/metrics.jsonl              # on pve
+cat /var/log/cloudio-signal/digests/$(date -u +%F).txt
 ```
 
 ### Hardware transcoding

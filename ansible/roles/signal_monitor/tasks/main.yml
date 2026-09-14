@@ -1,0 +1,125 @@
+---
+# 30-minute 5G/LTE signal + speedtest sampling, plus a daily digest (file
+# always; email only if signal_email_enabled). See vars.yml for toggles.
+#
+# zte_router_enabled starts false on purpose: the router locks logins out
+# after 5 failed attempts (MAX_LOGIN_COUNT, seen in its own JS), and this
+# runs unattended every {{ signal_monitor_interval_minutes }} minutes -- do
+# not flip it on before vault_zte_router_password is the real password.
+
+- name: Install speedtest-cli, jq, msmtp
+  ansible.builtin.apt:
+    name:
+      - speedtest-cli
+      - jq
+      - msmtp
+    state: present
+    update_cache: true
+  when: signal_monitor_enabled
+
+- name: Create the signal monitor config + log directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0700"
+  loop:
+    - /etc/cloudio-signal-monitor
+    - "{{ signal_log_dir }}"
+    - "{{ signal_log_dir }}/digests"
+  when: signal_monitor_enabled
+
+- name: Install the legacy-TLS-renegotiation OpenSSL config (the router's embedded TLS stack needs it)
+  ansible.builtin.copy:
+    src: openssl-legacy.cnf
+    dest: /etc/cloudio-signal-monitor/openssl-legacy.cnf
+    owner: root
+    group: root
+    mode: "0644"
+  when: signal_monitor_enabled
+
+- name: Install the signal monitor credentials env file
+  ansible.builtin.template:
+    src: signal-monitor.env.j2
+    dest: /etc/cloudio-signal-monitor.env
+    owner: root
+    group: root
+    mode: "0600"
+  when: signal_monitor_enabled
+
+- name: Install the msmtp config for the daily digest email
+  ansible.builtin.template:
+    src: msmtprc.j2
+    dest: /etc/cloudio-signal-monitor/msmtprc
+    owner: root
+    group: root
+    mode: "0600"
+  when: signal_monitor_enabled and signal_email_enabled
+
+- name: Install the signal monitor script
+  ansible.builtin.template:
+    src: cloudio-signal-monitor.sh.j2
+    dest: /usr/local/sbin/cloudio-signal-monitor.sh
+    owner: root
+    group: root
+    mode: "0750"
+  when: signal_monitor_enabled
+
+- name: Install the signal digest script
+  ansible.builtin.template:
+    src: cloudio-signal-digest.sh.j2
+    dest: /usr/local/sbin/cloudio-signal-digest.sh
+    owner: root
+    group: root
+    mode: "0750"
+  when: signal_monitor_enabled
+
+- name: Install the log rotation policy
+  ansible.builtin.template:
+    src: cloudio-signal-logrotate.j2
+    dest: /etc/logrotate.d/cloudio-signal
+    owner: root
+    group: root
+    mode: "0644"
+  when: signal_monitor_enabled
+
+- name: Install the signal monitor + digest systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - cloudio-signal-monitor.service
+    - cloudio-signal-monitor.timer
+    - cloudio-signal-digest.service
+    - cloudio-signal-digest.timer
+  notify: systemd daemon-reload
+  when: signal_monitor_enabled
+
+- name: Enable the signal monitor timer
+  ansible.builtin.systemd:
+    name: cloudio-signal-monitor.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: signal_monitor_enabled
+
+- name: Enable the signal digest timer
+  ansible.builtin.systemd:
+    name: cloudio-signal-digest.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: signal_monitor_enabled
+
+- name: Next steps for signal monitoring
+  ansible.builtin.debug:
+    msg: >-
+      Sampling every {{ signal_monitor_interval_minutes }}m to
+      {{ signal_log_dir }}/metrics.jsonl, daily digest at
+      {{ signal_log_dir }}/digests/. ZTE polling is
+      {{ 'ON' if zte_router_enabled else 'OFF (set zte_router_enabled: true + vault_zte_router_password to turn on)' }}.
+      Email digest is
+      {{ 'ON' if signal_email_enabled else 'OFF (set signal_email_enabled: true + SMTP vars to turn on)' }}.
+  when: signal_monitor_enabled

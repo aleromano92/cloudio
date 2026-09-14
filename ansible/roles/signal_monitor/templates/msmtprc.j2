@@ -1,0 +1,13 @@
+# Managed by Ansible (signal_monitor role). Used only by cloudio-signal-digest.sh.
+defaults
+auth           on
+tls            on
+tls_trust_file /etc/ssl/certs/ca-certificates.crt
+logfile        {{ signal_log_dir }}/msmtp.log
+
+account        default
+host           {{ signal_email_smtp_host }}
+port           {{ signal_email_smtp_port }}
+from           {{ signal_email_from }}
+user           {{ signal_email_smtp_user }}
+password       {{ vault_signal_email_smtp_password | default('') }}

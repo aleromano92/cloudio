@@ -37,7 +37,7 @@
       --swap {{ unifi_lxc_swap }}
       --rootfs {{ unifi_lxc_storage }}:{{ unifi_lxc_disk_gb }}
       --net0 name=eth0,bridge={{ unifi_lxc_bridge }},ip={{ unifi_lxc_ip }},gw={{ pve_gateway }}
-      --nameserver 1.1.1.1
+      --nameserver {{ dns_nameservers[0] }}
       --features nesting=1,keyctl=1,fuse=1
       --unprivileged 1
       --onboot 1

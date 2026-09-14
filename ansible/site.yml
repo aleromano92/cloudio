@@ -13,3 +13,5 @@
       tags: ["media", "guests"]
     - role: unifi_lxc
       tags: ["unifi", "guests"]
+    - role: signal_monitor
+      tags: ["monitoring"]

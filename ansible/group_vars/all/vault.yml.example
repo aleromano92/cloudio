@@ -23,3 +23,12 @@ vault_restic_password: "generate-a-long-random-passphrase"
 # case is recreating the LXC).
 vault_unifi_mongo_root_password: "generate-a-long-random-passphrase"
 vault_unifi_mongo_user_password: "generate-a-long-random-passphrase"
+
+# ZTE MC801A router admin password (plaintext here -- the monitor script
+# hashes it client-side the same way the router's own web UI does before
+# ever sending it). Only used if zte_router_enabled: true.
+vault_zte_router_password: "CHANGE-ME"
+
+# SMTP relay password for the daily signal digest email (e.g. a Gmail app
+# password). Only used if signal_email_enabled: true.
+vault_signal_email_smtp_password: "CHANGE-ME"

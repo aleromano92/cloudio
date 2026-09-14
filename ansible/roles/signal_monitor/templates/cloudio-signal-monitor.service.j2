@@ -1,0 +1,10 @@
+[Unit]
+Description=cloudio 5G/LTE signal + speedtest sample
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudio-signal-monitor.sh
+Nice=10
+IOSchedulingClass=idle
