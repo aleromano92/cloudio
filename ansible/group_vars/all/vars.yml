@@ -7,8 +7,7 @@
 
 # --- Node / LAN -------------------------------------------------------------
 pve_ip: "192.168.0.10"          # static IP given to Proxmox at install
-pve_gateway: "192.168.0.47"     # TEMP HOUSE router. New house = 192.168.0.1 --
-                                # see docs/runbooks/house-move.md
+pve_gateway: "192.168.0.1"      # new house router (moved 2026-09-14)
 lan_cidr: "192.168.0.0/24"
 timezone: "Europe/Rome"
 
