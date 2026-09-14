@@ -6,7 +6,9 @@
 # zte_router_enabled gate below, baked in at template time on purpose).
 set -uo pipefail
 
-export OPENSSL_CONF=/etc/cloudio-signal-monitor/openssl-legacy.cnf
+# Scoped to the ZTE curl calls only (not exported process-wide) so it can't
+# affect the unrelated speedtest binary's own TLS behavior.
+ZTE_OPENSSL_CONF=/etc/cloudio-signal-monitor/openssl-legacy.cnf
 ENV_FILE=/etc/cloudio-signal-monitor.env
 # shellcheck disable=SC1090
 [ -r "$ENV_FILE" ] && . "$ENV_FILE"
@@ -28,7 +30,7 @@ HDRS=(
 {% if zte_router_enabled %}
 zte_json='null'
 if [ -n "${ZTE_PASSWORD:-}" ]; then
-  LD_RAW=$(curl -sk --connect-timeout 8 --max-time 15 "${HDRS[@]}" -b 'stok=""' \
+  LD_RAW=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk --connect-timeout 8 --max-time 15 "${HDRS[@]}" -b 'stok=""' \
     "https://${ROUTER_IP}/goform/goform_get_cmd_process?isTest=false&cmd=LD&_=$(date +%s%3N)")
   LD=$(printf '%s' "$LD_RAW" | jq -r '.LD // empty' 2>/dev/null)
 
@@ -37,13 +39,13 @@ if [ -n "${ZTE_PASSWORD:-}" ]; then
     HASH2=$(printf '%s' "${HASH1}${LD}" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
     JAR=$(mktemp)
 
-    LOGIN_RESP=$(curl -sk -c "$JAR" -X POST "https://${ROUTER_IP}/goform/goform_set_cmd_process" \
+    LOGIN_RESP=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk -c "$JAR" -X POST "https://${ROUTER_IP}/goform/goform_set_cmd_process" \
       "${HDRS[@]}" -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" -b 'stok=""' \
       --connect-timeout 8 --max-time 15 \
       --data "isTest=false&goformId=LOGIN&password=${HASH2}")
 
     if printf '%s' "$LOGIN_RESP" | jq -e '.result == "0"' >/dev/null 2>&1; then
-      SIG_RESP=$(curl -sk -b "$JAR" "${HDRS[@]}" --connect-timeout 8 --max-time 15 \
+      SIG_RESP=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk -b "$JAR" "${HDRS[@]}" --connect-timeout 8 --max-time 15 \
         "https://${ROUTER_IP}/goform/goform_get_cmd_process?multi_data=1&cmd=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr")
       zte_json=$(printf '%s' "$SIG_RESP" | jq -c '. + {login_ok: true}' 2>/dev/null || echo null)
     else
@@ -61,14 +63,15 @@ zte_json=$(jq -nc '{login_ok: false, error: "disabled"}')
 {% endif %}
 
 speedtest_json='null'
-ST_RAW=$(speedtest-cli --json --secure 2>/dev/null)
+ST_RAW=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null)
 if [ -n "$ST_RAW" ]; then
   speedtest_json=$(printf '%s' "$ST_RAW" | jq -c '{
-    ping_ms: .ping,
-    download_mbps: (.download / 1000000),
-    upload_mbps: (.upload / 1000000),
-    server: .server.sponsor,
-    server_location: .server.name
+    ping_ms: .ping.latency,
+    jitter_ms: .ping.jitter,
+    download_mbps: (.download.bandwidth * 8 / 1000000),
+    upload_mbps: (.upload.bandwidth * 8 / 1000000),
+    server: .server.name,
+    server_location: .server.location
   }' 2>/dev/null || echo null)
 fi
 

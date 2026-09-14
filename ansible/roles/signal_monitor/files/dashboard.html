@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>cloudio signal</title>
+<style>
+  body { font: 14px/1.4 -apple-system, system-ui, sans-serif; background: #111; color: #ddd; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #888; font-size: 12px; margin-bottom: 20px; }
+  .stats { display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 24px; }
+  .stat { min-width: 110px; }
+  .stat .label { color: #888; font-size: 11px; text-transform: uppercase; }
+  .stat .value { font-size: 22px; font-weight: 600; }
+  .stat .value.dim { color: #555; }
+  svg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; }
+  .chart { margin-bottom: 24px; }
+  .chart h2 { font-size: 13px; color: #aaa; margin: 0 0 6px; }
+  .legend { font-size: 11px; color: #888; margin-bottom: 6px; }
+  .legend span { margin-right: 14px; }
+  .swatch { display: inline-block; width: 8px; height: 8px; margin-right: 4px; }
+
+  .info { position: relative; display: inline-block; width: 12px; height: 12px; margin-left: 4px;
+    border: 1px solid #666; border-radius: 50%; color: #888; font-size: 9px; line-height: 11px;
+    text-align: center; text-transform: none; cursor: help; }
+  .info .tip { display: none; position: absolute; bottom: 130%; left: 0; width: 230px;
+    background: #222; border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
+    font-size: 11.5px; line-height: 1.45; color: #ccc; text-transform: none; font-weight: 400;
+    z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+  .info:hover .tip, .info:focus .tip { display: block; }
+</style>
+</head>
+<body>
+  <h1>cloudio signal</h1>
+  <div class="sub" id="sub">loading metrics.jsonl&hellip;</div>
+  <div class="stats" id="stats"></div>
+
+  <div class="chart">
+    <h2>Throughput</h2>
+    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>download Mbps</span><span><span class="swatch" style="background:#c78a3d"></span>upload Mbps</span></div>
+    <svg id="throughputChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+  </div>
+
+  <div class="chart">
+    <h2>Cellular Signal</h2>
+    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>NR RSRP dBm</span><span><span class="swatch" style="background:#c78a3d"></span>NR SINR dB</span></div>
+    <svg id="signalChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+  </div>
+
+  <script>
+    function parseJsonl(text) {
+      return text.split("\n").filter(Boolean).map(line => {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(Boolean);
+    }
+
+    function flatten(rows) {
+      return rows.map(r => ({
+        timestamp: r.timestamp,
+        downloadMbps: r.speedtest ? r.speedtest.download_mbps : null,
+        uploadMbps: r.speedtest ? r.speedtest.upload_mbps : null,
+        pingMs: r.speedtest ? r.speedtest.ping_ms : null,
+        jitterMs: r.speedtest ? r.speedtest.jitter_ms : null,
+        nrRsrp: r.zte && r.zte.login_ok ? Number(r.zte.Z5g_rsrp) : null,
+        nrSinr: r.zte && r.zte.login_ok ? Number(r.zte.Z5g_SINR) : null,
+      }));
+    }
+
+    function drawLine(svg, points, color) {
+      if (points.length < 2) return;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      path.setAttribute("points", points.map(p => p.join(",")).join(" "));
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", color);
+      path.setAttribute("stroke-width", "1.6");
+      svg.appendChild(path);
+    }
+
+    function drawChart(svgEl, samples, key, color) {
+      svgEl.innerHTML = "";
+      const w = 900, h = 180, pad = 30;
+      const vals = samples.map(s => s[key]).filter(v => v != null && !isNaN(v));
+      if (vals.length < 2) {
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", w / 2); t.setAttribute("y", h / 2);
+        t.setAttribute("fill", "#555"); t.setAttribute("text-anchor", "middle");
+        t.setAttribute("font-size", "12");
+        t.textContent = "not enough data yet";
+        svgEl.appendChild(t);
+        return;
+      }
+      const min = Math.min(...vals), max = Math.max(...vals);
+      const range = max - min || 1;
+      const n = samples.length;
+      const points = [];
+      samples.forEach((s, i) => {
+        const v = s[key];
+        if (v == null || isNaN(v)) return;
+        const x = pad + (i / (n - 1)) * (w - pad * 2);
+        const y = h - pad - ((v - min) / range) * (h - pad * 2);
+        points.push([x.toFixed(1), y.toFixed(1)]);
+      });
+      drawLine(svgEl, points, color);
+      [min, max].forEach((v, i) => {
+        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        t.setAttribute("x", 4); t.setAttribute("y", i === 0 ? h - pad + 4 : pad);
+        t.setAttribute("fill", "#666"); t.setAttribute("font-size", "10");
+        t.textContent = Math.round(v * 10) / 10;
+        svgEl.appendChild(t);
+      });
+    }
+
+    function statBlock(label, value, unit, tip) {
+      const dim = value == null;
+      const info = tip ? `<span class="info" tabindex="0">i<span class="tip">${tip}</span></span>` : "";
+      return `<div class="stat"><div class="label">${label}${info}</div><div class="value ${dim ? "dim" : ""}">${dim ? "—" : Math.round(value * 10) / 10 + " " + unit}</div></div>`;
+    }
+
+    const TIPS = {
+      download: "Download throughput to the nearest Ookla server. Matters for file transfers, streaming quality, and app/OS updates.",
+      upload: "Upload throughput to the same server. Matters for video calls, cloud backups, and anything that pushes data out &mdash; e.g. the Anran cameras' remote-view stream.",
+      ping: "Round-trip time to the test server. Lower means snappier calls, gaming, and remote access (SSH/Proxmox UI over Tailscale).",
+      jitter: "How much ping varies between packets, not just its average. High jitter causes choppy audio/video even when average ping looks fine &mdash; often a better predictor of a \"laggy\" call than ping itself.",
+      nrRsrp: "5G NR reference signal power from the tower, in dBm (closer to 0 = stronger). Roughly: &minus;80 or better is strong, &minus;80 to &minus;100 is workable, below &minus;100 is weak.",
+      nrSinr: "Signal-to-interference-plus-noise ratio, in dB &mdash; how clean the signal is, not just how strong. This predicts your real achievable speed better than RSRP alone. Above 13dB is good, 0&ndash;13dB is fair, below 0dB is poor.",
+    };
+
+    async function load() {
+      const res = await fetch("metrics.jsonl", { cache: "no-store" });
+      const text = await res.text();
+      const samples = flatten(parseJsonl(text));
+      const latest = samples[samples.length - 1];
+
+      document.getElementById("sub").textContent =
+        samples.length + " samples · latest " + (latest ? new Date(latest.timestamp).toLocaleString() : "n/a") +
+        " · reload this page to refresh";
+
+      document.getElementById("stats").innerHTML = [
+        statBlock("Download", latest && latest.downloadMbps, "Mbps", TIPS.download),
+        statBlock("Upload", latest && latest.uploadMbps, "Mbps", TIPS.upload),
+        statBlock("Ping", latest && latest.pingMs, "ms", TIPS.ping),
+        statBlock("Jitter", latest && latest.jitterMs, "ms", TIPS.jitter),
+        statBlock("NR RSRP", latest && latest.nrRsrp, "dBm", TIPS.nrRsrp),
+        statBlock("NR SINR", latest && latest.nrSinr, "dB", TIPS.nrSinr),
+      ].join("");
+
+      drawChart(document.getElementById("throughputChart"), samples, "downloadMbps", "#4fc3a1");
+      drawLine(document.getElementById("throughputChart"),
+        (() => { const w=900,h=180,pad=30,vals=samples.map(s=>s.uploadMbps).filter(v=>v!=null); if(vals.length<2) return [];
+          const min=Math.min(...vals),max=Math.max(...vals),range=max-min||1,n=samples.length,pts=[];
+          samples.forEach((s,i)=>{ if(s.uploadMbps==null) return; const x=pad+(i/(n-1))*(w-pad*2); const y=h-pad-((s.uploadMbps-min)/range)*(h-pad*2); pts.push([x.toFixed(1),y.toFixed(1)]); });
+          return pts; })(), "#c78a3d");
+
+      drawChart(document.getElementById("signalChart"), samples, "nrRsrp", "#4fc3a1");
+      drawLine(document.getElementById("signalChart"),
+        (() => { const w=900,h=180,pad=30,vals=samples.map(s=>s.nrSinr).filter(v=>v!=null); if(vals.length<2) return [];
+          const min=Math.min(...vals),max=Math.max(...vals),range=max-min||1,n=samples.length,pts=[];
+          samples.forEach((s,i)=>{ if(s.nrSinr==null) return; const x=pad+(i/(n-1))*(w-pad*2); const y=h-pad-((s.nrSinr-min)/range)*(h-pad*2); pts.push([x.toFixed(1),y.toFixed(1)]); });
+          return pts; })(), "#c78a3d");
+    }
+
+    load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });
+  </script>
+</body>
+</html>

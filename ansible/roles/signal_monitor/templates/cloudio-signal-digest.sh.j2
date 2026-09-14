@@ -28,6 +28,7 @@ else
         download_mbps_avg: ($r | avg(.speedtest.download_mbps)),
         upload_mbps_avg: ($r | avg(.speedtest.upload_mbps)),
         ping_ms_avg: ($r | avg(.speedtest.ping_ms)),
+        jitter_ms_avg: ($r | avg(.speedtest.jitter_ms)),
         speedtest_failures: ($r | map(select(.speedtest == null)) | length)
       }
   ' "$LOG_FILE" > "${OUT_FILE}.json" 2>/dev/null
@@ -39,7 +40,8 @@ else
     "NR  SINR avg: \(.nr_sinr_avg // "n/a") dB",
     "download avg: \(.download_mbps_avg // "n/a") Mbps",
     "upload avg:   \(.upload_mbps_avg // "n/a") Mbps",
-    "ping avg:     \(.ping_ms_avg // "n/a") ms"
+    "ping avg:     \(.ping_ms_avg // "n/a") ms",
+    "jitter avg:   \(.jitter_ms_avg // "n/a") ms"
   ' "${OUT_FILE}.json" > "$OUT_FILE" 2>/dev/null || echo "cloudio signal digest — failed to summarise $LOG_FILE" > "$OUT_FILE"
 fi
 

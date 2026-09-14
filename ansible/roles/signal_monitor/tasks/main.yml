@@ -2,19 +2,29 @@
 # 30-minute 5G/LTE signal + speedtest sampling, plus a daily digest (file
 # always; email only if signal_email_enabled). See vars.yml for toggles.
 #
-# zte_router_enabled starts false on purpose: the router locks logins out
-# after 5 failed attempts (MAX_LOGIN_COUNT, seen in its own JS), and this
-# runs unattended every {{ signal_monitor_interval_minutes }} minutes -- do
-# not flip it on before vault_zte_router_password is the real password.
+# zte_router_enabled defaults to false in a fresh checkout: the router locks
+# logins out after 5 failed attempts (MAX_LOGIN_COUNT, seen in its own JS),
+# and this runs unattended every {{ signal_monitor_interval_minutes }} minutes
+# -- don't flip it on before vault_zte_router_password is the real password.
 
-- name: Install speedtest-cli, jq, msmtp
+- name: Install jq, msmtp, nodejs (for npx serve)
   ansible.builtin.apt:
     name:
-      - speedtest-cli
       - jq
       - msmtp
+      - nodejs
+      - npm
     state: present
     update_cache: true
+  when: signal_monitor_enabled
+
+- name: Install Ookla's official speedtest CLI (reports jitter; the Debian speedtest-cli package doesn't)
+  ansible.builtin.unarchive:
+    src: "https://install.speedtest.net/app/cli/ookla-speedtest-{{ ookla_speedtest_version }}-linux-{{ 'x86_64' if ansible_architecture == 'x86_64' else ansible_architecture }}.tgz"
+    dest: /usr/local/bin
+    remote_src: true
+    include: speedtest
+    mode: "0755"
   when: signal_monitor_enabled
 
 - name: Create the signal monitor config + log directories
@@ -73,6 +83,33 @@
     mode: "0750"
   when: signal_monitor_enabled
 
+- name: Install the static dashboard page
+  ansible.builtin.copy:
+    src: dashboard.html
+    dest: "{{ signal_log_dir }}/index.html"
+    owner: root
+    group: root
+    mode: "0644"
+  when: signal_monitor_enabled
+
+- name: Install the signal dashboard web service
+  ansible.builtin.template:
+    src: cloudio-signal-web.service.j2
+    dest: /etc/systemd/system/cloudio-signal-web.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: systemd daemon-reload
+  when: signal_monitor_enabled
+
+- name: Enable the signal dashboard web service
+  ansible.builtin.systemd:
+    name: cloudio-signal-web.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: signal_monitor_enabled
+
 - name: Install the log rotation policy
   ansible.builtin.template:
     src: cloudio-signal-logrotate.j2
@@ -118,7 +155,8 @@
     msg: >-
       Sampling every {{ signal_monitor_interval_minutes }}m to
       {{ signal_log_dir }}/metrics.jsonl, daily digest at
-      {{ signal_log_dir }}/digests/. ZTE polling is
+      {{ signal_log_dir }}/digests/. Dashboard: http://{{ pve_ip }}:{{ signal_web_port }}
+      (reload the page to refresh). ZTE polling is
       {{ 'ON' if zte_router_enabled else 'OFF (set zte_router_enabled: true + vault_zte_router_password to turn on)' }}.
       Email digest is
       {{ 'ON' if signal_email_enabled else 'OFF (set signal_email_enabled: true + SMTP vars to turn on)' }}.

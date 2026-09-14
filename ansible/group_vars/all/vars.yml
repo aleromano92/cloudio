@@ -134,12 +134,17 @@ unifi_mongo_authsource: "admin"
 signal_monitor_enabled: true
 signal_monitor_interval_minutes: 30
 signal_log_dir: "/var/log/cloudio-signal"
+# Static dashboard (files/dashboard.html) served read-only via `npx serve`,
+# reachable at http://<pve_ip>:{{ signal_web_port }} or over Tailscale. No
+# auth -- it's read-only speedtest/signal numbers, not sensitive.
+signal_web_port: 8420
+ookla_speedtest_version: "1.2.0"
 
 # ZTE MC801A router polling (login via goform_set_cmd_process, hashed
 # client-side). Leave false until vault_zte_router_password is the real
 # admin password -- the router locks logins out after 5 failed attempts
 # (MAX_LOGIN_COUNT), and this runs unattended.
-zte_router_enabled: false
+zte_router_enabled: true
 zte_router_ip: "192.168.0.1"
 
 # Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.

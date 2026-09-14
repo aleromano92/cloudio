@@ -1,0 +1,11 @@
+[Unit]
+Description=cloudio signal dashboard (static page + serve)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/npx --yes serve -l {{ signal_web_port }} {{ signal_log_dir }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

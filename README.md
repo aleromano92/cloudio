@@ -175,6 +175,11 @@ digest to `signal_log_dir/digests/`. Both toggles below start **off**:
   additionally needs an SMTP relay (`signal_email_smtp_*` vars +
   `vault_signal_email_smtp_password`, e.g. a Gmail app password).
 
+A static page (`files/dashboard.html`, no build step, no external CDN) is
+served straight off `pve` via `npx serve` on `signal_web_port` (default
+`8420`) — open `http://<pve_ip>:8420` (or the Tailscale address) and reload
+to refresh; it fetches `metrics.jsonl` client-side and draws it as plain SVG.
+
 ```bash
 tail -f /var/log/cloudio-signal/metrics.jsonl              # on pve
 cat /var/log/cloudio-signal/digests/$(date -u +%F).txt
