@@ -5,6 +5,11 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+# Ookla's speedtest binary segfaults (std::logic_error, basic_string
+# null construct) if $HOME is unset -- true under a bare systemd unit
+# (no login shell), not over an interactive SSH session, which is why
+# this looked like an intermittent network failure until reproduced.
+Environment=HOME=/root
 ExecStart=/usr/local/sbin/cloudio-signal-monitor.sh
 Nice=10
 IOSchedulingClass=idle
