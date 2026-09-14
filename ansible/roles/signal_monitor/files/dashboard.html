@@ -42,10 +42,17 @@
   </div>
 
   <div class="chart">
-    <h2>Cellular Signal</h2>
-    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>NR RSRP dBm (left axis)</span><span><span class="swatch" style="background:#c78a3d"></span>NR SINR dB (right axis)</span></div>
-    <div class="hint">Different units, so each gets its own axis &mdash; RSRP: closer to 0 is stronger. SINR: higher is cleaner (predicts real speed better than RSRP alone).</div>
-    <svg id="signalChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+    <h2>NR RSRP (dBm)</h2>
+    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>signal power</span></div>
+    <div class="hint">Closer to 0 is stronger. &minus;80 or better: strong &middot; &minus;80 to &minus;100: workable &middot; below &minus;100: weak.</div>
+    <svg id="rsrpChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+  </div>
+
+  <div class="chart">
+    <h2>NR SINR (dB)</h2>
+    <div class="legend"><span><span class="swatch" style="background:#c78a3d"></span>signal cleanliness</span></div>
+    <div class="hint">Higher is cleaner &mdash; predicts real achievable speed better than RSRP alone. Above 13: good &middot; 0&ndash;13: fair &middot; below 0: poor.</div>
+    <svg id="sinrChart" width="900" height="180" viewBox="0 0 900 180"></svg>
   </div>
 
   <script>
@@ -91,11 +98,8 @@
       svgEl.appendChild(t);
     }
 
-    function scaleOf(samples, keys) {
-      const vals = keys.flatMap(k => samples.map(s => s[k]).filter(v => v != null && !isNaN(v)));
-      if (vals.length < 2) return null;
-      const min = Math.min(...vals), max = Math.max(...vals);
-      return { min, max, range: (max - min) || 1 };
+    function hasEnoughData(samples, keys) {
+      return keys.some(k => samples.filter(s => s[k] != null && !isNaN(s[k])).length >= 2);
     }
 
     function pointsFor(samples, key, scale) {
@@ -123,33 +127,21 @@
       });
     }
 
-    // Same-unit series (e.g. download/upload Mbps): one shared scale, so
-    // their real relative magnitude is visible instead of each line being
-    // independently stretched to fill the chart.
-    function drawSharedChart(svgEl, samples, series) {
+    // Fixed, domain-meaningful axis (not derived from the data) -- an
+    // auto-scaled axis still misrepresents proportion (e.g. a window that
+    // happens to span only 34-272 exaggerates variation vs. the connection's
+    // real 0-700 Mbps headroom), and a flat/near-flat reading auto-scaled
+    // to its own tiny range produces a degenerate axis (identical min/max
+    // labels) that reads as a bug. One or more series can share a fixed
+    // range when they're the same unit; different units get separate charts
+    // entirely rather than a dual axis, which was clearer to mislabel than
+    // to read correctly.
+    function drawFixedChart(svgEl, samples, series, range) {
       svgEl.innerHTML = "";
-      const scale = scaleOf(samples, series.map(s => s.key));
-      if (!scale) { emptyChart(svgEl); return; }
+      if (!hasEnoughData(samples, series.map(s => s.key))) { emptyChart(svgEl); return; }
+      const scale = { min: range.min, max: range.max, range: range.max - range.min };
       series.forEach(s => drawLine(svgEl, pointsFor(samples, s.key, scale), s.color));
-      axisLabels(svgEl, scale, "#888", "left");
-    }
-
-    // Different-unit series (e.g. RSRP dBm vs SINR dB): independent scales,
-    // each labeled on its own side in its own color -- sharing one axis
-    // across different units would be actively misleading, not just messy.
-    function drawDualChart(svgEl, samples, left, right) {
-      svgEl.innerHTML = "";
-      const leftScale = scaleOf(samples, [left.key]);
-      const rightScale = scaleOf(samples, [right.key]);
-      if (!leftScale && !rightScale) { emptyChart(svgEl); return; }
-      if (leftScale) {
-        drawLine(svgEl, pointsFor(samples, left.key, leftScale), left.color);
-        axisLabels(svgEl, leftScale, left.color, "left");
-      }
-      if (rightScale) {
-        drawLine(svgEl, pointsFor(samples, right.key, rightScale), right.color);
-        axisLabels(svgEl, rightScale, right.color, "right");
-      }
+      axisLabels(svgEl, scale, series.length === 1 ? series[0].color : "#888", "left");
     }
 
     function statBlock(label, value, unit, tip) {
@@ -186,14 +178,16 @@
         statBlock("NR SINR", latest && latest.nrSinr, "dB", TIPS.nrSinr),
       ].join("");
 
-      drawSharedChart(document.getElementById("throughputChart"), samples, [
+      drawFixedChart(document.getElementById("throughputChart"), samples, [
         { key: "downloadMbps", color: "#4fc3a1" },
         { key: "uploadMbps", color: "#c78a3d" },
-      ]);
+      ], { min: 0, max: 700 });
 
-      drawDualChart(document.getElementById("signalChart"), samples,
-        { key: "nrRsrp", color: "#4fc3a1" },
-        { key: "nrSinr", color: "#c78a3d" });
+      drawFixedChart(document.getElementById("rsrpChart"), samples,
+        [{ key: "nrRsrp", color: "#4fc3a1" }], { min: -120, max: -60 });
+
+      drawFixedChart(document.getElementById("sinrChart"), samples,
+        [{ key: "nrSinr", color: "#c78a3d" }], { min: -10, max: 30 });
     }
 
     load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });
