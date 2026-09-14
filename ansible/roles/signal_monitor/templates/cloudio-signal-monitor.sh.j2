@@ -63,7 +63,10 @@ zte_json=$(jq -nc '{login_ok: false, error: "disabled"}')
 {% endif %}
 
 speedtest_json='null'
-ST_RAW=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null)
+# The Ookla CLI prints its license/GDPR banner to stdout (not stderr) on
+# first acceptance -- `tail -n 1` keeps this robust to that either way,
+# since the JSON result is always the last line.
+ST_RAW=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null | tail -n 1)
 if [ -n "$ST_RAW" ]; then
   speedtest_json=$(printf '%s' "$ST_RAW" | jq -c '{
     ping_ms: .ping.latency,
