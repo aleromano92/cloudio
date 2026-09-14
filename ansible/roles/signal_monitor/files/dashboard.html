@@ -19,9 +19,15 @@
   .legend span { margin-right: 14px; }
   .swatch { display: inline-block; width: 8px; height: 8px; margin-right: 4px; }
   .hint { font-size: 11px; color: #666; margin: -2px 0 8px; }
-  .pt { transition: r 0.1s ease; cursor: pointer; }
-  .pt:hover { r: 5.5; }
+  .pt { pointer-events: none; }
   .threshold-label { font-size: 9px; }
+  .chart-wrap { position: relative; }
+  .chart-wrap svg { cursor: crosshair; }
+
+  #tooltip { position: fixed; display: none; background: #222; border: 1px solid #333;
+    border-radius: 5px; padding: 6px 9px; font-size: 12px; line-height: 1.5; color: #ddd;
+    pointer-events: none; z-index: 20; box-shadow: 0 4px 14px rgba(0,0,0,0.4); white-space: nowrap; }
+  #tooltip .tt-time { color: #888; font-size: 10.5px; margin-bottom: 2px; }
 
   .info { position: relative; display: inline-block; width: 12px; height: 12px; margin-left: 4px;
     border: 1px solid #666; border-radius: 50%; color: #888; font-size: 9px; line-height: 11px;
@@ -38,24 +44,26 @@
   <div class="sub" id="sub">loading metrics.jsonl&hellip;</div>
   <div class="stats" id="stats"></div>
 
+  <div id="tooltip"></div>
+
   <div class="chart">
     <h2>Throughput</h2>
     <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>download Mbps</span><span><span class="swatch" style="background:#c78a3d"></span>upload Mbps</span></div>
-    <svg id="throughputChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+    <div class="chart-wrap"><svg id="throughputChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
   </div>
 
   <div class="chart">
     <h2>NR RSRP (dBm)</h2>
     <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>signal power</span></div>
     <div class="hint">Closer to 0 is stronger. &minus;80 or better: strong &middot; &minus;80 to &minus;100: workable &middot; below &minus;100: weak.</div>
-    <svg id="rsrpChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+    <div class="chart-wrap"><svg id="rsrpChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
   </div>
 
   <div class="chart">
     <h2>NR SINR (dB)</h2>
     <div class="legend"><span><span class="swatch" style="background:#c78a3d"></span>signal cleanliness</span></div>
     <div class="hint">Higher is cleaner &mdash; predicts real achievable speed better than RSRP alone. Above 13: good &middot; 0&ndash;13: fair &middot; below 0: poor.</div>
-    <svg id="sinrChart" width="900" height="180" viewBox="0 0 900 180"></svg>
+    <div class="chart-wrap"><svg id="sinrChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
   </div>
 
   <script>
@@ -90,10 +98,12 @@
       svg.appendChild(path);
     }
 
-    // One small circle per real sample, each carrying a native <title> so
-    // hovering shows the exact value + timestamp -- the axis alone only
-    // gives you the two end labels, not what any point actually is.
-    function drawPoints(svg, samples, key, scale, color, seriesLabel, unit) {
+    // One small circle per real sample, purely visual -- the actual hover
+    // interaction is handled by attachHover() below, driven by mouse
+    // position over the whole chart rather than requiring the pointer to
+    // land exactly on a 3px circle (native SVG <title> tooltips turned out
+    // too finicky to hit reliably and were dropped in favor of this).
+    function drawPoints(svg, samples, key, scale, color) {
       const n = samples.length;
       samples.forEach((s, i) => {
         const v = s[key];
@@ -106,11 +116,45 @@
         c.setAttribute("cy", y.toFixed(1));
         c.setAttribute("r", "3");
         c.setAttribute("fill", color);
-        const title = document.createElementNS(SVG_NS, "title");
-        title.textContent = `${seriesLabel}: ${fmt(v)} ${unit}\n${new Date(s.timestamp).toLocaleString()}`;
-        c.appendChild(title);
         svg.appendChild(c);
       });
+    }
+
+    // Tracks the nearest sample to the cursor's x position and shows its
+    // values in a floating tooltip -- forgiving to hover (anywhere over the
+    // chart works, not just exactly on a point).
+    function attachHover(svgEl, samples, series) {
+      const tooltip = document.getElementById("tooltip");
+      function hasData(s) { return series.some(ser => s[ser.key] != null && !isNaN(s[ser.key])); }
+      // Snaps to the nearest sample that actually HAS data for this chart,
+      // not just the nearest by x-position -- a failed collection run (ZTE
+      // login hiccup, speedtest timeout) shouldn't make hovering near it go
+      // silently blank when a real reading sits one sample over.
+      function nearestIndex(clientX) {
+        const r = svgEl.getBoundingClientRect();
+        const svgX = ((clientX - r.left) / r.width) * CHART_W;
+        const frac = (svgX - CHART_PAD) / (CHART_W - CHART_PAD * 2);
+        const idx = Math.max(0, Math.min(samples.length - 1, Math.round(frac * (samples.length - 1))));
+        if (hasData(samples[idx])) return idx;
+        for (let d = 1; d < samples.length; d++) {
+          if (idx - d >= 0 && hasData(samples[idx - d])) return idx - d;
+          if (idx + d < samples.length && hasData(samples[idx + d])) return idx + d;
+        }
+        return idx;
+      }
+      svgEl.addEventListener("mousemove", (e) => {
+        if (samples.length < 2) { tooltip.style.display = "none"; return; }
+        const s = samples[nearestIndex(e.clientX)];
+        const lines = series
+          .map((ser) => (s[ser.key] == null || isNaN(s[ser.key]) ? null : `${ser.label}: ${fmt(s[ser.key])} ${ser.unit}`))
+          .filter(Boolean);
+        if (!lines.length) { tooltip.style.display = "none"; return; }
+        tooltip.innerHTML = `<div class="tt-time">${new Date(s.timestamp).toLocaleString()}</div>` + lines.map((l) => `<div>${l}</div>`).join("");
+        tooltip.style.display = "block";
+        tooltip.style.left = e.clientX + 14 + "px";
+        tooltip.style.top = e.clientY + 14 + "px";
+      });
+      svgEl.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
     }
 
     // A dashed reference line at a meaningful domain threshold (e.g. the
@@ -193,8 +237,9 @@
       const scale = { min: range.min, max: range.max, range: range.max - range.min };
       (thresholds || []).forEach(t => drawThreshold(svgEl, scale, t.value, t.label, t.color));
       series.forEach(s => drawLine(svgEl, pointsFor(samples, s.key, scale), s.color));
-      series.forEach(s => drawPoints(svgEl, samples, s.key, scale, s.color, s.label, s.unit));
+      series.forEach(s => drawPoints(svgEl, samples, s.key, scale, s.color));
       axisLabels(svgEl, scale, series.length === 1 ? series[0].color : "#888", "left");
+      attachHover(svgEl, samples, series);
     }
 
     function statBlock(label, value, unit, tip) {
