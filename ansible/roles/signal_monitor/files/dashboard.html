@@ -18,6 +18,7 @@
   .legend { font-size: 11px; color: #888; margin-bottom: 6px; }
   .legend span { margin-right: 14px; }
   .swatch { display: inline-block; width: 8px; height: 8px; margin-right: 4px; }
+  .hint { font-size: 11px; color: #666; margin: -2px 0 8px; }
 
   .info { position: relative; display: inline-block; width: 12px; height: 12px; margin-left: 4px;
     border: 1px solid #666; border-radius: 50%; color: #888; font-size: 9px; line-height: 11px;
@@ -42,7 +43,8 @@
 
   <div class="chart">
     <h2>Cellular Signal</h2>
-    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>NR RSRP dBm</span><span><span class="swatch" style="background:#c78a3d"></span>NR SINR dB</span></div>
+    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>NR RSRP dBm (left axis)</span><span><span class="swatch" style="background:#c78a3d"></span>NR SINR dB (right axis)</span></div>
+    <div class="hint">Different units, so each gets its own axis &mdash; RSRP: closer to 0 is stronger. SINR: higher is cleaner (predicts real speed better than RSRP alone).</div>
     <svg id="signalChart" width="900" height="180" viewBox="0 0 900 180"></svg>
   </div>
 
@@ -75,38 +77,79 @@
       svg.appendChild(path);
     }
 
-    function drawChart(svgEl, samples, key, color) {
+    const CHART_W = 900, CHART_H = 180, CHART_PAD = 34;
+
+    function fmt(v) { return Math.round(v * 10) / 10; }
+
+    function emptyChart(svgEl) {
       svgEl.innerHTML = "";
-      const w = 900, h = 180, pad = 30;
-      const vals = samples.map(s => s[key]).filter(v => v != null && !isNaN(v));
-      if (vals.length < 2) {
-        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        t.setAttribute("x", w / 2); t.setAttribute("y", h / 2);
-        t.setAttribute("fill", "#555"); t.setAttribute("text-anchor", "middle");
-        t.setAttribute("font-size", "12");
-        t.textContent = "not enough data yet";
-        svgEl.appendChild(t);
-        return;
-      }
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("x", CHART_W / 2); t.setAttribute("y", CHART_H / 2);
+      t.setAttribute("fill", "#555"); t.setAttribute("text-anchor", "middle");
+      t.setAttribute("font-size", "12");
+      t.textContent = "not enough data yet";
+      svgEl.appendChild(t);
+    }
+
+    function scaleOf(samples, keys) {
+      const vals = keys.flatMap(k => samples.map(s => s[k]).filter(v => v != null && !isNaN(v)));
+      if (vals.length < 2) return null;
       const min = Math.min(...vals), max = Math.max(...vals);
-      const range = max - min || 1;
-      const n = samples.length;
-      const points = [];
+      return { min, max, range: (max - min) || 1 };
+    }
+
+    function pointsFor(samples, key, scale) {
+      const n = samples.length, pts = [];
       samples.forEach((s, i) => {
         const v = s[key];
         if (v == null || isNaN(v)) return;
-        const x = pad + (i / (n - 1)) * (w - pad * 2);
-        const y = h - pad - ((v - min) / range) * (h - pad * 2);
-        points.push([x.toFixed(1), y.toFixed(1)]);
+        const x = CHART_PAD + (i / (n - 1)) * (CHART_W - CHART_PAD * 2);
+        const y = CHART_H - CHART_PAD - ((v - scale.min) / scale.range) * (CHART_H - CHART_PAD * 2);
+        pts.push([x.toFixed(1), y.toFixed(1)]);
       });
-      drawLine(svgEl, points, color);
-      [min, max].forEach((v, i) => {
+      return pts;
+    }
+
+    function axisLabels(svgEl, scale, color, side) {
+      const x = side === "left" ? 4 : CHART_W - 4;
+      const anchor = side === "left" ? "start" : "end";
+      [[scale.min, CHART_H - CHART_PAD + 4], [scale.max, CHART_PAD]].forEach(([v, y]) => {
         const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        t.setAttribute("x", 4); t.setAttribute("y", i === 0 ? h - pad + 4 : pad);
-        t.setAttribute("fill", "#666"); t.setAttribute("font-size", "10");
-        t.textContent = Math.round(v * 10) / 10;
+        t.setAttribute("x", x); t.setAttribute("y", y);
+        t.setAttribute("fill", color); t.setAttribute("font-size", "10");
+        t.setAttribute("text-anchor", anchor);
+        t.textContent = fmt(v);
         svgEl.appendChild(t);
       });
+    }
+
+    // Same-unit series (e.g. download/upload Mbps): one shared scale, so
+    // their real relative magnitude is visible instead of each line being
+    // independently stretched to fill the chart.
+    function drawSharedChart(svgEl, samples, series) {
+      svgEl.innerHTML = "";
+      const scale = scaleOf(samples, series.map(s => s.key));
+      if (!scale) { emptyChart(svgEl); return; }
+      series.forEach(s => drawLine(svgEl, pointsFor(samples, s.key, scale), s.color));
+      axisLabels(svgEl, scale, "#888", "left");
+    }
+
+    // Different-unit series (e.g. RSRP dBm vs SINR dB): independent scales,
+    // each labeled on its own side in its own color -- sharing one axis
+    // across different units would be actively misleading, not just messy.
+    function drawDualChart(svgEl, samples, left, right) {
+      svgEl.innerHTML = "";
+      const leftScale = scaleOf(samples, [left.key]);
+      const rightScale = scaleOf(samples, [right.key]);
+      if (!leftScale && !rightScale) { emptyChart(svgEl); return; }
+      if (leftScale) {
+        drawLine(svgEl, pointsFor(samples, left.key, leftScale), left.color);
+        axisLabels(svgEl, leftScale, left.color, "left");
+      }
+      if (rightScale) {
+        drawLine(svgEl, pointsFor(samples, right.key, rightScale), right.color);
+        axisLabels(svgEl, rightScale, right.color, "right");
+      }
     }
 
     function statBlock(label, value, unit, tip) {
@@ -143,19 +186,14 @@
         statBlock("NR SINR", latest && latest.nrSinr, "dB", TIPS.nrSinr),
       ].join("");
 
-      drawChart(document.getElementById("throughputChart"), samples, "downloadMbps", "#4fc3a1");
-      drawLine(document.getElementById("throughputChart"),
-        (() => { const w=900,h=180,pad=30,vals=samples.map(s=>s.uploadMbps).filter(v=>v!=null); if(vals.length<2) return [];
-          const min=Math.min(...vals),max=Math.max(...vals),range=max-min||1,n=samples.length,pts=[];
-          samples.forEach((s,i)=>{ if(s.uploadMbps==null) return; const x=pad+(i/(n-1))*(w-pad*2); const y=h-pad-((s.uploadMbps-min)/range)*(h-pad*2); pts.push([x.toFixed(1),y.toFixed(1)]); });
-          return pts; })(), "#c78a3d");
+      drawSharedChart(document.getElementById("throughputChart"), samples, [
+        { key: "downloadMbps", color: "#4fc3a1" },
+        { key: "uploadMbps", color: "#c78a3d" },
+      ]);
 
-      drawChart(document.getElementById("signalChart"), samples, "nrRsrp", "#4fc3a1");
-      drawLine(document.getElementById("signalChart"),
-        (() => { const w=900,h=180,pad=30,vals=samples.map(s=>s.nrSinr).filter(v=>v!=null); if(vals.length<2) return [];
-          const min=Math.min(...vals),max=Math.max(...vals),range=max-min||1,n=samples.length,pts=[];
-          samples.forEach((s,i)=>{ if(s.nrSinr==null) return; const x=pad+(i/(n-1))*(w-pad*2); const y=h-pad-((s.nrSinr-min)/range)*(h-pad*2); pts.push([x.toFixed(1),y.toFixed(1)]); });
-          return pts; })(), "#c78a3d");
+      drawDualChart(document.getElementById("signalChart"), samples,
+        { key: "nrRsrp", color: "#4fc3a1" },
+        { key: "nrSinr", color: "#c78a3d" });
     }
 
     load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });
