@@ -43,6 +43,28 @@
       --mp0 {{ media_disk_mount }},mp=/data,backup=0
   when: media_status.rc != 0
 
+- name: Keep the LXC's network config in sync with vars.yml (pct create only applies this once, at container creation)
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      current=$(grep '^net0:' /etc/pve/lxc/{{ media_ctid }}.conf)
+      if echo "$current" | grep -qF "ip={{ media_lxc_ip }}," && echo "$current" | grep -qF "gw={{ pve_gateway }}"; then
+        echo UNCHANGED
+      else
+        hwaddr=$(echo "$current" | grep -oP 'hwaddr=\K[0-9A-Fa-f:]+')
+        pct set {{ media_ctid }} --net0 "name=eth0,bridge={{ media_lxc_bridge }},hwaddr=${hwaddr},ip={{ media_lxc_ip }},gw={{ pve_gateway }}"
+        echo CHANGED
+      fi
+  register: media_net_conf
+  when: media_status.rc == 0
+  changed_when: "'CHANGED' in media_net_conf.stdout"
+  # Same gap found live in unifi_lxc during a LAN renumber: `pct create` only
+  # sets net0 once, at first creation -- an existing container silently keeps
+  # its old IP/gateway forever otherwise. hwaddr must be carried forward
+  # explicitly too -- omitting it from `pct set --net0` doesn't leave the MAC
+  # alone, it silently generates a new random one, orphaning any router-side
+  # MAC-IP binding.
+
 - name: Allow Docker's overlay filesystem inside this unprivileged LXC
   ansible.builtin.lineinfile:
     path: "/etc/pve/lxc/{{ media_ctid }}.conf"
@@ -51,9 +73,9 @@
   # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
   # Proxmox line -- verified directly against the unifi LXC. See docs/adr/0008.
 
-- name: Restart the LXC to apply the AppArmor change, if it was already running
-  ansible.builtin.command: "pct restart {{ media_ctid }}"
-  when: media_apparmor_conf.changed and media_status.rc == 0
+- name: Restart the LXC to apply the AppArmor/network change, if it was already running
+  ansible.builtin.command: "pct reboot {{ media_ctid }}"
+  when: (media_apparmor_conf.changed or media_net_conf.changed | default(false)) and media_status.rc == 0
 
 - name: Start the media LXC
   ansible.builtin.command: "pct start {{ media_ctid }}"
