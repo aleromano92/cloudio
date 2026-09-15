@@ -15,13 +15,9 @@ if [ ! -s "$LOG_FILE" ]; then
   echo "cloudio signal digest — no data yet at $LOG_FILE" > "$OUT_FILE"
 else
   jq -s --arg since "$SINCE" '
-    # The router occasionally returns an empty string for a numeric field
-    # (e.g. Z5g_SINR mid-handover) instead of omitting it -- tonumber on ""
-    # crashes with "Expected JSON value", which took the whole digest down
-    # silently (empty output files, no error visible). tonumber? // empty
-    # just drops that one bad reading instead of failing the batch.
+    # Readings are typed at collection (numbers, or null when absent).
     def numbers(f):
-      map(f) | map(select(. != null)) | map(if type == "string" then (tonumber? // empty) else . end);
+      map(f) | map(select(type == "number"));
     def avg(f):
       numbers(f) as $v | if ($v | length) > 0 then ($v | add / length) else null end;
     def maxOf(f):

@@ -3,80 +3,114 @@
 # {{ signal_log_dir }}/metrics.jsonl: ZTE MC801A 5G/LTE signal + a speedtest
 # sample. Best-effort -- a failure in one half still logs the other half,
 # and this must never spam MAX_LOGIN_COUNT lockouts on the router (see the
-# zte_router_enabled gate below, baked in at template time on purpose).
+# zte_router_enabled gate in main, baked in at template time on purpose).
+#
+# Sourcing this file defines the functions without running a sample, so the
+# router session can be checked on its own:
+#   . /usr/local/sbin/cloudio-signal-monitor.sh
+#   . /etc/cloudio-signal-monitor.env
+#   zte_read_signal {{ zte_router_ip }} "$ZTE_PASSWORD" | jq .
 set -uo pipefail
 
-# Scoped to the ZTE curl calls only (not exported process-wide) so it can't
-# affect the unrelated speedtest binary's own TLS behavior.
-ZTE_OPENSSL_CONF=/etc/cloudio-signal-monitor/openssl-legacy.cnf
-ENV_FILE=/etc/cloudio-signal-monitor.env
-# shellcheck disable=SC1090
-[ -r "$ENV_FILE" ] && . "$ENV_FILE"
+ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
 
-ROUTER_IP="{{ zte_router_ip }}"
-LOG_DIR="{{ signal_log_dir }}"
-LOG_FILE="$LOG_DIR/metrics.jsonl"
-mkdir -p "$LOG_DIR"
+# The router reports every field as a string, and sends "" for a reading it
+# doesn't have (e.g. Z5g_SINR while dropped to LTE-only) instead of omitting
+# it. Readings are typed here, once, so everything reading metrics.jsonl can
+# trust it: numeric strings become numbers, "" becomes null.
+ZTE_NORMALISE='with_entries(.value |= (if . == "" then null elif (type == "string" and test("^-?[0-9]+(\\.[0-9]+)?$")) then tonumber else . end))'
 
-TS=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-HDRS=(
-  -H "Accept: application/json, text/javascript, */*; q=0.01"
-  -H "Referer: https://${ROUTER_IP}/"
-  -H "X-Requested-With: XMLHttpRequest"
-  -H "User-Agent: ${UA}"
-)
+# Logs in to the router and prints one JSON object on stdout: the normalised
+# signal fields plus login_ok:true, or {login_ok:false, error:...}. Always
+# prints valid JSON; never exits non-zero.
+zte_read_signal() {
+  local router_ip=$1 password=$2
+  # Scoped to these curl calls only, so it can't affect the speedtest
+  # binary's own TLS behaviour.
+  local tls_conf=/etc/cloudio-signal-monitor/openssl-legacy.cnf
+  local ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  local -a hdrs=(
+    -H "Accept: application/json, text/javascript, */*; q=0.01"
+    -H "Referer: https://${router_ip}/"
+    -H "X-Requested-With: XMLHttpRequest"
+    -H "User-Agent: ${ua}"
+  )
 
-{% if zte_router_enabled %}
-zte_json='null'
-if [ -n "${ZTE_PASSWORD:-}" ]; then
-  LD_RAW=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk --connect-timeout 8 --max-time 15 "${HDRS[@]}" -b 'stok=""' \
-    "https://${ROUTER_IP}/goform/goform_get_cmd_process?isTest=false&cmd=LD&_=$(date +%s%3N)")
-  LD=$(printf '%s' "$LD_RAW" | jq -r '.LD // empty' 2>/dev/null)
-
-  if [ -n "$LD" ]; then
-    HASH1=$(printf '%s' "$ZTE_PASSWORD" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
-    HASH2=$(printf '%s' "${HASH1}${LD}" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
-    JAR=$(mktemp)
-
-    LOGIN_RESP=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk -c "$JAR" -X POST "https://${ROUTER_IP}/goform/goform_set_cmd_process" \
-      "${HDRS[@]}" -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" -b 'stok=""' \
-      --connect-timeout 8 --max-time 15 \
-      --data "isTest=false&goformId=LOGIN&password=${HASH2}")
-
-    if printf '%s' "$LOGIN_RESP" | jq -e '.result == "0"' >/dev/null 2>&1; then
-      SIG_RESP=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk -b "$JAR" "${HDRS[@]}" --connect-timeout 8 --max-time 15 \
-        "https://${ROUTER_IP}/goform/goform_get_cmd_process?multi_data=1&cmd=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr,pm_sensor_mdm,pm_modem_5g")
-      zte_json=$(printf '%s' "$SIG_RESP" | jq -c '. + {login_ok: true}' 2>/dev/null || echo null)
-    else
-      zte_json=$(jq -nc '{login_ok: false, error: "login_failed"}')
-    fi
-    rm -f "$JAR"
-  else
-    zte_json=$(jq -nc '{login_ok: false, error: "ld_empty"}')
+  if [ -z "$password" ]; then
+    jq -nc '{login_ok: false, error: "no_password_configured"}'
+    return 0
   fi
-else
-  zte_json=$(jq -nc '{login_ok: false, error: "no_password_configured"}')
-fi
-{% else %}
-zte_json=$(jq -nc '{login_ok: false, error: "disabled"}')
-{% endif %}
 
-speedtest_json='null'
-# The Ookla CLI prints its license/GDPR banner to stdout (not stderr) on
-# first acceptance -- `tail -n 1` keeps this robust to that either way,
-# since the JSON result is always the last line.
-ST_RAW=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null | tail -n 1)
-if [ -n "$ST_RAW" ]; then
-  speedtest_json=$(printf '%s' "$ST_RAW" | jq -c '{
+  local ld
+  ld=$(OPENSSL_CONF="$tls_conf" curl -sk --connect-timeout 8 --max-time 15 "${hdrs[@]}" -b 'stok=""' \
+    "https://${router_ip}/goform/goform_get_cmd_process?isTest=false&cmd=LD&_=$(date +%s%3N)" \
+    | jq -r '.LD // empty' 2>/dev/null)
+  if [ -z "$ld" ]; then
+    jq -nc '{login_ok: false, error: "ld_empty"}'
+    return 0
+  fi
+
+  local hash1 hash2 jar login
+  hash1=$(printf '%s' "$password" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
+  hash2=$(printf '%s' "${hash1}${ld}" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
+  jar=$(mktemp)
+
+  login=$(OPENSSL_CONF="$tls_conf" curl -sk -c "$jar" -X POST "https://${router_ip}/goform/goform_set_cmd_process" \
+    "${hdrs[@]}" -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" -b 'stok=""' \
+    --connect-timeout 8 --max-time 15 \
+    --data "isTest=false&goformId=LOGIN&password=${hash2}")
+
+  if printf '%s' "$login" | jq -e '.result == "0"' >/dev/null 2>&1; then
+    local signal
+    signal=$(OPENSSL_CONF="$tls_conf" curl -sk -b "$jar" "${hdrs[@]}" --connect-timeout 8 --max-time 15 \
+      "https://${router_ip}/goform/goform_get_cmd_process?multi_data=1&cmd=${ZTE_FIELDS}")
+    # jq prints nothing (and exits 0) on empty input, so an empty response
+    # has to be caught here or the caller gets "" instead of JSON.
+    printf '%s' "$signal" | jq -ce "${ZTE_NORMALISE} + {login_ok: true}" 2>/dev/null \
+      || jq -nc '{login_ok: false, error: "bad_signal_response"}'
+  else
+    jq -nc '{login_ok: false, error: "login_failed"}'
+  fi
+  rm -f "$jar"
+}
+
+# Prints one JSON object with the speedtest result, or null on failure.
+speedtest_sample() {
+  local raw
+  # The Ookla CLI prints its license/GDPR banner to stdout (not stderr) on
+  # first acceptance -- the JSON result is always the last line either way.
+  raw=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null | tail -n 1)
+  printf '%s' "$raw" | jq -ce '{
     ping_ms: .ping.latency,
     jitter_ms: .ping.jitter,
     download_mbps: (.download.bandwidth * 8 / 1000000),
     upload_mbps: (.upload.bandwidth * 8 / 1000000),
     server: .server.name,
     server_location: .server.location
-  }' 2>/dev/null || echo null)
-fi
+  }' 2>/dev/null || echo null
+}
 
-jq -nc --arg ts "$TS" --argjson zte "$zte_json" --argjson speedtest "$speedtest_json" \
-  '{timestamp: $ts, zte: $zte, speedtest: $speedtest}' >> "$LOG_FILE"
+main() {
+  local env_file=/etc/cloudio-signal-monitor.env
+  # shellcheck disable=SC1090
+  [ -r "$env_file" ] && . "$env_file"
+
+  local log_dir="{{ signal_log_dir }}"
+  mkdir -p "$log_dir"
+
+  local ts zte speedtest
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+{% if zte_router_enabled %}
+  zte=$(zte_read_signal "{{ zte_router_ip }}" "${ZTE_PASSWORD:-}")
+{% else %}
+  zte=$(jq -nc '{login_ok: false, error: "disabled"}')
+{% endif %}
+  speedtest=$(speedtest_sample)
+
+  jq -nc --arg ts "$ts" --argjson zte "$zte" --argjson speedtest "$speedtest" \
+    '{timestamp: $ts, zte: $zte, speedtest: $speedtest}' >> "$log_dir/metrics.jsonl"
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  main
+fi
