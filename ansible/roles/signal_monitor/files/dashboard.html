@@ -80,6 +80,15 @@
       }).filter(Boolean);
     }
 
+    // The router sometimes returns an empty string for a numeric field
+    // instead of omitting it (seen on Z5g_SINR, likely mid NR/LTE
+    // handover). JS's Number("") is 0, not NaN -- unguarded, that reads as
+    // a real "0" data point instead of "no reading", which is a worse bug
+    // than just crashing since it's a plausible-looking false value.
+    function numOrNull(v) {
+      return v == null || v === "" ? null : Number(v);
+    }
+
     function flatten(rows) {
       return rows.map(r => ({
         timestamp: r.timestamp,
@@ -87,10 +96,10 @@
         uploadMbps: r.speedtest ? r.speedtest.upload_mbps : null,
         pingMs: r.speedtest ? r.speedtest.ping_ms : null,
         jitterMs: r.speedtest ? r.speedtest.jitter_ms : null,
-        nrRsrp: r.zte && r.zte.login_ok ? Number(r.zte.Z5g_rsrp) : null,
-        nrSinr: r.zte && r.zte.login_ok ? Number(r.zte.Z5g_SINR) : null,
-        mdmTempC: r.zte && r.zte.login_ok ? Number(r.zte.pm_sensor_mdm) : null,
-        modem5gTempC: r.zte && r.zte.login_ok ? Number(r.zte.pm_modem_5g) : null,
+        nrRsrp: r.zte && r.zte.login_ok ? numOrNull(r.zte.Z5g_rsrp) : null,
+        nrSinr: r.zte && r.zte.login_ok ? numOrNull(r.zte.Z5g_SINR) : null,
+        mdmTempC: r.zte && r.zte.login_ok ? numOrNull(r.zte.pm_sensor_mdm) : null,
+        modem5gTempC: r.zte && r.zte.login_ok ? numOrNull(r.zte.pm_modem_5g) : null,
       }));
     }
 
