@@ -66,6 +66,13 @@
     <div class="chart-wrap"><svg id="sinrChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
   </div>
 
+  <div class="chart">
+    <h2>Modem Temperature (&deg;C)</h2>
+    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>4G modem</span><span><span class="swatch" style="background:#c78a3d"></span>5G modem</span></div>
+    <div class="hint">Added after the router went dark and needed a power-cycle to recover -- a real thermal shutdown was one suspect. ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.</div>
+    <div class="chart-wrap"><svg id="tempChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
+  </div>
+
   <script>
     function parseJsonl(text) {
       return text.split("\n").filter(Boolean).map(line => {
@@ -82,6 +89,8 @@
         jitterMs: r.speedtest ? r.speedtest.jitter_ms : null,
         nrRsrp: r.zte && r.zte.login_ok ? Number(r.zte.Z5g_rsrp) : null,
         nrSinr: r.zte && r.zte.login_ok ? Number(r.zte.Z5g_SINR) : null,
+        mdmTempC: r.zte && r.zte.login_ok ? Number(r.zte.pm_sensor_mdm) : null,
+        modem5gTempC: r.zte && r.zte.login_ok ? Number(r.zte.pm_modem_5g) : null,
       }));
     }
 
@@ -255,6 +264,8 @@
       jitter: "How much ping varies between packets, not just its average. High jitter causes choppy audio/video even when average ping looks fine &mdash; often a better predictor of a \"laggy\" call than ping itself.",
       nrRsrp: "5G NR reference signal power from the tower, in dBm (closer to 0 = stronger). Roughly: &minus;80 or better is strong, &minus;80 to &minus;100 is workable, below &minus;100 is weak.",
       nrSinr: "Signal-to-interference-plus-noise ratio, in dB &mdash; how clean the signal is, not just how strong. This predicts your real achievable speed better than RSRP alone. Above 13dB is good, 0&ndash;13dB is fair, below 0dB is poor.",
+      mdmTemp: "4G modem chip temperature, in &deg;C, as reported by the router itself. Added to catch a thermal shutdown before it takes the connection down again.",
+      modem5gTemp: "5G modem chip temperature, in &deg;C. Runs separately from the 4G modem; either one overheating can drop the connection.",
     };
 
     async function load() {
@@ -274,6 +285,8 @@
         statBlock("Jitter", latest && latest.jitterMs, "ms", TIPS.jitter),
         statBlock("NR RSRP", latest && latest.nrRsrp, "dBm", TIPS.nrRsrp),
         statBlock("NR SINR", latest && latest.nrSinr, "dB", TIPS.nrSinr),
+        statBlock("4G modem", latest && latest.mdmTempC, "°C", TIPS.mdmTemp),
+        statBlock("5G modem", latest && latest.modem5gTempC, "°C", TIPS.modem5gTemp),
       ].join("");
 
       drawFixedChart(document.getElementById("throughputChart"), samples, [
@@ -296,6 +309,12 @@
           { value: 13, label: "good ↑", color: "#5fa88f" },
           { value: 0, label: "poor ↓", color: "#b1544a" },
         ]);
+
+      drawFixedChart(document.getElementById("tempChart"), samples, [
+        { key: "mdmTempC", color: "#4fc3a1", label: "4G modem", unit: "°C" },
+        { key: "modem5gTempC", color: "#c78a3d", label: "5G modem", unit: "°C" },
+      ], { min: 0, max: 100 },
+        [{ value: 75, label: "caution (est.) ↑", color: "#b1544a" }]);
     }
 
     load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });

@@ -15,9 +15,12 @@ if [ ! -s "$LOG_FILE" ]; then
   echo "cloudio signal digest — no data yet at $LOG_FILE" > "$OUT_FILE"
 else
   jq -s --arg since "$SINCE" '
+    def numbers(f):
+      map(f) | map(select(. != null)) | map(if type == "string" then tonumber else . end);
     def avg(f):
-      (map(f) | map(select(. != null)) | map(if type == "string" then tonumber else . end)) as $v
-      | if ($v | length) > 0 then ($v | add / length) else null end;
+      numbers(f) as $v | if ($v | length) > 0 then ($v | add / length) else null end;
+    def maxOf(f):
+      numbers(f) as $v | if ($v | length) > 0 then ($v | max) else null end;
 
     map(select(.timestamp >= $since)) as $r
     | {
@@ -25,6 +28,10 @@ else
         zte_login_failures: ($r | map(select(.zte.login_ok != true)) | length),
         lte_rsrp_avg: ($r | avg(.zte.lte_rsrp)),
         nr_sinr_avg: ($r | avg(.zte.Z5g_SINR)),
+        mdm_temp_avg: ($r | avg(.zte.pm_sensor_mdm)),
+        mdm_temp_max: ($r | maxOf(.zte.pm_sensor_mdm)),
+        modem5g_temp_avg: ($r | avg(.zte.pm_modem_5g)),
+        modem5g_temp_max: ($r | maxOf(.zte.pm_modem_5g)),
         download_mbps_avg: ($r | avg(.speedtest.download_mbps)),
         upload_mbps_avg: ($r | avg(.speedtest.upload_mbps)),
         ping_ms_avg: ($r | avg(.speedtest.ping_ms)),
@@ -38,6 +45,8 @@ else
     "samples: \(.samples)  (zte login failures: \(.zte_login_failures), speedtest failures: \(.speedtest_failures))",
     "LTE RSRP avg: \(.lte_rsrp_avg // "n/a") dBm",
     "NR  SINR avg: \(.nr_sinr_avg // "n/a") dB",
+    "4G modem temp: avg \(.mdm_temp_avg // "n/a")C, max \(.mdm_temp_max // "n/a")C",
+    "5G modem temp: avg \(.modem5g_temp_avg // "n/a")C, max \(.modem5g_temp_max // "n/a")C",
     "download avg: \(.download_mbps_avg // "n/a") Mbps",
     "upload avg:   \(.upload_mbps_avg // "n/a") Mbps",
     "ping avg:     \(.ping_ms_avg // "n/a") ms",

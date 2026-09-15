@@ -46,7 +46,7 @@ if [ -n "${ZTE_PASSWORD:-}" ]; then
 
     if printf '%s' "$LOGIN_RESP" | jq -e '.result == "0"' >/dev/null 2>&1; then
       SIG_RESP=$(OPENSSL_CONF="$ZTE_OPENSSL_CONF" curl -sk -b "$JAR" "${HDRS[@]}" --connect-timeout 8 --max-time 15 \
-        "https://${ROUTER_IP}/goform/goform_get_cmd_process?multi_data=1&cmd=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr")
+        "https://${ROUTER_IP}/goform/goform_get_cmd_process?multi_data=1&cmd=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr,pm_sensor_mdm,pm_modem_5g")
       zte_json=$(printf '%s' "$SIG_RESP" | jq -c '. + {login_ok: true}' 2>/dev/null || echo null)
     else
       zte_json=$(jq -nc '{login_ok: false, error: "login_failed"}')
