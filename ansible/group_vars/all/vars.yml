@@ -7,16 +7,16 @@
 
 # --- Node / LAN -------------------------------------------------------------
 pve_ip: "192.168.7.10"          # static IP given to Proxmox at install
-pve_gateway: "192.168.7.1"      # renumbered off 192.168.0.0/24 to avoid Tailscale subnet-route collisions (2026-09-15)
+pve_gateway: "192.168.7.1"      # router
 lan_cidr: "192.168.7.0/24"
 timezone: "Europe/Rome"
 # Used for the host's own /etc/resolv.conf AND every LXC's --nameserver.
 # Deliberately points at the router itself (derived from pve_gateway, not a
-# second hardcoded IP) rather than public resolvers -- this house is
-# considered permanent, and any future router swap happens with physical
-# access anyway (a `sed` across vars.yml + this file covers it). The
-# Proxmox installer originally wrote this once at install time and never
-# re-derived it, which is what went stale across the last house move.
+# second hardcoded IP) rather than public resolvers, since any future router
+# swap happens with physical access anyway (a `sed` across vars.yml + this
+# file covers it). The Proxmox installer only writes this once, at install
+# time, and never re-derives it on its own -- this task is what keeps it
+# actually matching pve_gateway.
 dns_nameservers:
   - "{{ pve_gateway }}"
 

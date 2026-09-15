@@ -1,9 +1,9 @@
 ---
 # Not managed by DHCP (pve_ip is static) and resolvconf isn't installed, so
-# nothing else ever rewrites this file -- a house move (new router) left it
-# pointing at the old router's IP as nameserver until this task existed,
-# breaking apt (and everything else) with DNS timeouts despite the LAN
-# itself being fully reachable. Found live on the box, not assumed.
+# nothing else ever rewrites this file -- a router swap left it pointing at
+# an unreachable IP as nameserver until this task existed, breaking apt
+# (and everything else) with DNS timeouts despite the LAN itself being
+# fully reachable. Found live on the box, not assumed.
 - name: Set the host's DNS resolvers
   ansible.builtin.template:
     src: resolv.conf.j2

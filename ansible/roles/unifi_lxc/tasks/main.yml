@@ -58,15 +58,14 @@
   register: unifi_net_conf
   when: unifi_status.rc == 0
   changed_when: "'CHANGED' in unifi_net_conf.stdout"
-  # Found live, mid-LAN-renumber: an existing container silently kept its OLD
-  # net0 (IP/gateway) forever, since `pct create` above only runs on first
-  # creation. Left unfixed, changing pve_ip/pve_gateway/unifi_lxc_ip in
-  # vars.yml would update the repo but never actually reach an already-running
-  # container. The hwaddr must be carried forward explicitly -- omitting it
-  # from `pct set --net0` doesn't leave the MAC alone, it silently generates
-  # a NEW random one, which then orphans any router-side MAC-IP binding
-  # (found this too, live: the ZTE router's binding for this container broke
-  # the moment its MAC changed out from under it).
+  # An existing container silently keeps its OLD net0 (IP/gateway) forever
+  # otherwise, since `pct create` above only runs on first creation --
+  # changing pve_gateway/unifi_lxc_ip in vars.yml would update the repo but
+  # never actually reach an already-running container. The hwaddr must be
+  # carried forward explicitly -- omitting it from `pct set --net0` doesn't
+  # leave the MAC alone, it silently generates a NEW random one, which then
+  # orphans any router-side MAC-IP binding (verified live: the router's
+  # binding for this container broke the moment its MAC changed).
 
 - name: Allow Docker's overlay filesystem inside this unprivileged LXC
   ansible.builtin.lineinfile:

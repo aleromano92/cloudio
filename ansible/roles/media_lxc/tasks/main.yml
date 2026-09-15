@@ -58,12 +58,12 @@
   register: media_net_conf
   when: media_status.rc == 0
   changed_when: "'CHANGED' in media_net_conf.stdout"
-  # Same gap found live in unifi_lxc during a LAN renumber: `pct create` only
-  # sets net0 once, at first creation -- an existing container silently keeps
-  # its old IP/gateway forever otherwise. hwaddr must be carried forward
-  # explicitly too -- omitting it from `pct set --net0` doesn't leave the MAC
-  # alone, it silently generates a new random one, orphaning any router-side
-  # MAC-IP binding.
+  # Same gap as unifi_lxc: `pct create` only sets net0 once, at first
+  # creation -- an existing container silently keeps its old IP/gateway
+  # forever otherwise. hwaddr must be carried forward explicitly too --
+  # omitting it from `pct set --net0` doesn't leave the MAC alone, it
+  # silently generates a new random one, orphaning any router-side MAC-IP
+  # binding.
 
 - name: Allow Docker's overlay filesystem inside this unprivileged LXC
   ansible.builtin.lineinfile:

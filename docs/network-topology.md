@@ -40,12 +40,7 @@ One subnet. No VLANs. See [ADR-0004](./adr/0004-flat-network-for-v1.md).
 
 ### Addressing
 
-Base network: **`192.168.7.0/24`**, gateway `.1` (renumbered 2026-09-15 off the
-original `192.168.0.0/24` — that prefix is the near-universal consumer-router
-default, and it directly caused a real Tailscale subnet-route collision when
-reachable from another network that happened to also be `192.168.0.0/24`; see
-[`docs/runbooks/lan-renumber.md`](./runbooks/lan-renumber.md)). Host last-octets
-were kept unchanged across the move, only the prefix changed.
+Base network: **`192.168.7.0/24`**, gateway `.1`.
 
 Infrastructure gets **static IPs configured on the device itself** (not DHCP
 reservations) so it does not depend on the DHCP server being healthy. Everything
