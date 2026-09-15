@@ -13,8 +13,11 @@
   .stat .value { font-size: 22px; font-weight: 600; }
   .stat .value.dim { color: #555; }
   svg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; }
-  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+  .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 24px; margin-bottom: 24px; }
+  @media (max-width: 900px) {
+    .chart-grid { grid-template-columns: 1fr; }
+  }
   .chart h2 { font-size: 13px; color: #aaa; margin: 0 0 6px; }
   .legend { font-size: 11px; color: #888; margin-bottom: 6px; }
   .legend span { margin-right: 14px; }
