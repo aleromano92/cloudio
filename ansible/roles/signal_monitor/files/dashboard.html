@@ -13,7 +13,8 @@
   .stat .value { font-size: 22px; font-weight: 600; }
   .stat .value.dim { color: #555; }
   svg { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; }
-  .chart { margin-bottom: 24px; }
+  .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+    gap: 24px; margin-bottom: 24px; }
   .chart h2 { font-size: 13px; color: #aaa; margin: 0 0 6px; }
   .legend { font-size: 11px; color: #888; margin-bottom: 6px; }
   .legend span { margin-right: 14px; }
@@ -22,7 +23,7 @@
   .pt { pointer-events: none; }
   .threshold-label { font-size: 9px; }
   .chart-wrap { position: relative; }
-  .chart-wrap svg { cursor: crosshair; }
+  .chart-wrap svg { cursor: crosshair; width: 100%; height: auto; display: block; }
 
   #tooltip { position: fixed; display: none; background: #222; border: 1px solid #333;
     border-radius: 5px; padding: 6px 9px; font-size: 12px; line-height: 1.5; color: #ddd;
@@ -68,6 +69,8 @@
 
   <div id="chartsView">
 
+  <div class="chart-grid">
+
   <div class="chart">
     <h2>Throughput</h2>
     <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>download Mbps</span><span><span class="swatch" style="background:#c78a3d"></span>upload Mbps</span></div>
@@ -93,6 +96,8 @@
     <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>4G modem</span><span><span class="swatch" style="background:#c78a3d"></span>5G modem</span></div>
     <div class="hint">Added after the router went dark and needed a power-cycle to recover -- a real thermal shutdown was one suspect. ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.</div>
     <div class="chart-wrap"><svg id="tempChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
+  </div>
+
   </div>
 
   </div>
