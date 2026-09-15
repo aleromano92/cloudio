@@ -40,6 +40,13 @@ One subnet. No VLANs. See [ADR-0004](./adr/0004-flat-network-for-v1.md).
 
 ### Addressing
 
+Base network: **`192.168.7.0/24`**, gateway `.1` (renumbered 2026-09-15 off the
+original `192.168.0.0/24` — that prefix is the near-universal consumer-router
+default, and it directly caused a real Tailscale subnet-route collision when
+reachable from another network that happened to also be `192.168.0.0/24`; see
+[`docs/runbooks/lan-renumber.md`](./runbooks/lan-renumber.md)). Host last-octets
+were kept unchanged across the move, only the prefix changed.
+
 Infrastructure gets **static IPs configured on the device itself** (not DHCP
 reservations) so it does not depend on the DHCP server being healthy. Everything
 else (phones, TVs, IoT) gets a **DHCP reservation** so addresses are still stable
@@ -48,9 +55,11 @@ for the future VLAN split.
 | Host | Last octet | Notes |
 |---|---|---|
 | `pve` (Proxmox node) | `.10` | Static, set at install |
-| `homeassistant` (HAOS VM) | `.11` | Static |
+| `homeassistant` (HAOS VM) | `.11` | DHCP reservation (MAC-bound at the router) |
 | `media` (Docker LXC) | `.12` | Static |
 | `unifi` (UniFi controller LXC) | `.13` | Static |
+| AP-PianoTerra (U7 Pro Wall) | `.20` | DHCP reservation (MAC-bound at the router) |
+| AP-Piano-1 (U7 Pro Wall) | `.21` | DHCP reservation (MAC-bound at the router) |
 | BTicino MyHOME gateway | TBD (static) | MyHOME ↔ HA gateway. **Unresolved (2026-09-10):** F460 was fitted (no OpenWebNet), MyHOMEServer1 is EOL, F460+F461 forbidden. Likely swap F460 → **F461**. See ADR-0007. Needs static IP + HMAC password. |
 | Reolink NVR | TBD | DHCP reservation; block from internet if switch supports ACLs |
 
