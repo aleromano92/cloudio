@@ -1,0 +1,161 @@
+---
+# One unprivileged LXC on the node running a docker-compose stack. Imported by
+# media_lxc and unifi_lxc, which supply the docker_lxc_* variables and keep
+# only their service-specific steps. See docs/adr/0008 for the AppArmor choice.
+
+- name: Ensure the LXC template is downloaded
+  ansible.builtin.command:
+    cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
+    creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+
+- name: Verify the template actually landed on disk
+  ansible.builtin.stat:
+    path: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+  register: docker_lxc_template_stat
+  failed_when: >-
+    not docker_lxc_template_stat.stat.exists or docker_lxc_template_stat.stat.size < 1000000
+  # `pveam download` can exit 0 without placing a usable template (e.g. the
+  # storage's `content` line lacks vztmpl); `pct create` would otherwise fail
+  # much later with a far more confusing error.
+
+- name: Check whether the {{ docker_lxc_hostname }} LXC exists
+  ansible.builtin.command: "pct status {{ docker_lxc_ctid }}"
+  register: docker_lxc_status
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Create the {{ docker_lxc_hostname }} LXC
+  ansible.builtin.command:
+    cmd: >-
+      pct create {{ docker_lxc_ctid }} {{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}
+      --hostname {{ docker_lxc_hostname }}
+      --cores {{ docker_lxc_cores }}
+      --memory {{ docker_lxc_memory }}
+      --swap {{ docker_lxc_swap }}
+      --rootfs {{ docker_lxc_storage }}:{{ docker_lxc_disk_gb }}
+      --net0 name=eth0,bridge={{ docker_lxc_bridge }},ip={{ docker_lxc_ip }},gw={{ pve_gateway }}
+      --nameserver {{ dns_nameservers[0] }}
+      --features nesting=1,keyctl=1,fuse=1
+      --unprivileged 1
+      --onboot 1
+      {{ docker_lxc_create_args | default('') }}
+  when: docker_lxc_status.rc != 0
+
+- name: Keep the {{ docker_lxc_hostname }} LXC's network config in sync with vars.yml
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      current=$(grep '^net0:' /etc/pve/lxc/{{ docker_lxc_ctid }}.conf)
+      if echo "$current" | grep -qF "ip={{ docker_lxc_ip }}," && echo "$current" | grep -qF "gw={{ pve_gateway }}"; then
+        echo UNCHANGED
+      else
+        hwaddr=$(echo "$current" | grep -oP 'hwaddr=\K[0-9A-Fa-f:]+')
+        pct set {{ docker_lxc_ctid }} --net0 "name=eth0,bridge={{ docker_lxc_bridge }},hwaddr=${hwaddr},ip={{ docker_lxc_ip }},gw={{ pve_gateway }}"
+        echo CHANGED
+      fi
+  register: docker_lxc_net_conf
+  when: docker_lxc_status.rc == 0
+  changed_when: "'CHANGED' in docker_lxc_net_conf.stdout"
+  # `pct create` only sets net0 once, so an existing container would otherwise
+  # keep its old IP/gateway forever. hwaddr is carried forward explicitly:
+  # omitting it makes `pct set --net0` generate a new random MAC, orphaning any
+  # router-side MAC-IP binding.
+
+- name: Allow Docker's overlay filesystem inside the {{ docker_lxc_hostname }} LXC
+  ansible.builtin.lineinfile:
+    path: "/etc/pve/lxc/{{ docker_lxc_ctid }}.conf"
+    line: "lxc.apparmor.profile: unconfined"
+  register: docker_lxc_apparmor_conf
+  # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
+  # Proxmox line. See docs/adr/0008.
+
+- name: Reboot the {{ docker_lxc_hostname }} LXC to apply an AppArmor/network change
+  ansible.builtin.command: "pct reboot {{ docker_lxc_ctid }}"
+  when: >-
+    docker_lxc_status.rc == 0 and
+    (docker_lxc_apparmor_conf.changed or docker_lxc_net_conf.changed | default(false))
+
+- name: Start the {{ docker_lxc_hostname }} LXC
+  ansible.builtin.command: "pct start {{ docker_lxc_ctid }}"
+  register: docker_lxc_start
+  changed_when: "'already running' not in (docker_lxc_start.stderr | default(''))"
+  failed_when:
+    - docker_lxc_start.rc != 0
+    - "'already running' not in (docker_lxc_start.stderr | default(''))"
+
+- name: Wait for the {{ docker_lxc_hostname }} LXC to resolve DNS
+  ansible.builtin.command: "pct exec {{ docker_lxc_ctid }} -- getent hosts download.docker.com"
+  register: docker_lxc_dns
+  until: docker_lxc_dns.rc == 0
+  retries: 20
+  delay: 3
+  changed_when: false
+
+- name: Install Docker inside the {{ docker_lxc_hostname }} LXC
+  ansible.builtin.shell:
+    cmd: |
+      pct exec {{ docker_lxc_ctid }} -- bash -euc '
+        command -v docker >/dev/null 2>&1 && exit 0
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update
+        apt-get install -y ca-certificates curl
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+        chmod a+r /etc/apt/keyrings/docker.asc
+        . /etc/os-release
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
+        apt-get update
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+        systemctl enable --now docker
+      '
+  register: docker_lxc_docker
+  changed_when: "'Setting up docker-ce ' in docker_lxc_docker.stdout"
+
+- name: Create the stack directories in the {{ docker_lxc_hostname }} LXC
+  ansible.builtin.command:
+    argv: "{{ ['pct', 'exec', docker_lxc_ctid | string, '--', 'mkdir', '-p', docker_lxc_stack_dir] + docker_lxc_dirs | default([]) }}"
+  changed_when: false
+
+- name: Render the {{ docker_lxc_hostname }} stack .env on the node
+  ansible.builtin.template:
+    src: "{{ docker_lxc_env_template }}"
+    dest: "/root/.cloudio-{{ docker_lxc_hostname }}.env"
+    mode: "0600"
+
+- name: Copy the {{ docker_lxc_hostname }} stack files to the node
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "/root/.cloudio-{{ docker_lxc_hostname }}-{{ item.name }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ docker_lxc_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+  # `pct push` runs on the node, so its source must be a node path -- a
+  # control-node path there fails silently (prints an error, exits 0).
+
+- name: Push the {{ docker_lxc_hostname }} stack files into the container
+  ansible.builtin.command:
+    cmd: >-
+      pct push {{ docker_lxc_ctid }}
+      /root/.cloudio-{{ docker_lxc_hostname }}-{{ item.name }}
+      {{ docker_lxc_stack_dir }}/{{ item.name }} --perms {{ item.mode }}
+  loop: "{{ docker_lxc_files }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: true
+
+- name: Push the {{ docker_lxc_hostname }} .env into the container
+  ansible.builtin.command:
+    cmd: "pct push {{ docker_lxc_ctid }} /root/.cloudio-{{ docker_lxc_hostname }}.env {{ docker_lxc_stack_dir }}/.env --perms 0600"
+  changed_when: true
+
+- name: Bring up the {{ docker_lxc_hostname }} stack
+  ansible.builtin.command:
+    cmd: >-
+      pct exec {{ docker_lxc_ctid }} -- bash -c
+      "cd {{ docker_lxc_stack_dir }} && docker compose up -d --remove-orphans"
+  register: docker_lxc_compose
+  changed_when: >-
+    'Started' in (docker_lxc_compose.stderr | default('')) or
+    'Created' in (docker_lxc_compose.stderr | default(''))

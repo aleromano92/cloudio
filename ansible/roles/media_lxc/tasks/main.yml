@@ -2,153 +2,25 @@
 # The media stack: one unprivileged LXC running Docker + docker-compose.
 # See docs/adr/0002 (config in git, state in backups).
 
-- name: Ensure the LXC template is downloaded
-  ansible.builtin.command:
-    cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
-    creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
-
-- name: Verify the template actually landed on disk
-  ansible.builtin.stat:
-    path: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
-  register: media_template_stat
-  failed_when: >-
-    not media_template_stat.stat.exists or media_template_stat.stat.size < 1000000
-  # A missing/near-empty file here means `pveam download` "succeeded" (exit 0)
-  # without actually placing a usable template -- often because {{ lxc_template_storage }}
-  # storage's `content` line in /etc/pve/storage.cfg doesn't include vztmpl.
-  # `pct create` would otherwise fail much later, mid-rollback, with a far more
-  # confusing error.
-
-- name: Check whether the media LXC exists
-  ansible.builtin.command: "pct status {{ media_ctid }}"
-  register: media_status
-  changed_when: false
-  failed_when: false
-  check_mode: false
-
-- name: Create the media LXC
-  ansible.builtin.command:
-    cmd: >-
-      pct create {{ media_ctid }} {{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}
-      --hostname {{ media_hostname }}
-      --cores {{ media_lxc_cores }}
-      --memory {{ media_lxc_memory }}
-      --swap {{ media_lxc_swap }}
-      --rootfs {{ media_lxc_storage }}:{{ media_lxc_disk_gb }}
-      --net0 name=eth0,bridge={{ media_lxc_bridge }},ip={{ media_lxc_ip }},gw={{ pve_gateway }}
-      --nameserver {{ dns_nameservers[0] }}
-      --features nesting=1,keyctl=1,fuse=1
-      --unprivileged 1
-      --onboot 1
-      --mp0 {{ media_disk_mount }},mp=/data,backup=0
-  when: media_status.rc != 0
-
-- name: Keep the LXC's network config in sync with vars.yml (pct create only applies this once, at container creation)
-  ansible.builtin.shell:
-    cmd: |
-      set -e
-      current=$(grep '^net0:' /etc/pve/lxc/{{ media_ctid }}.conf)
-      if echo "$current" | grep -qF "ip={{ media_lxc_ip }}," && echo "$current" | grep -qF "gw={{ pve_gateway }}"; then
-        echo UNCHANGED
-      else
-        hwaddr=$(echo "$current" | grep -oP 'hwaddr=\K[0-9A-Fa-f:]+')
-        pct set {{ media_ctid }} --net0 "name=eth0,bridge={{ media_lxc_bridge }},hwaddr=${hwaddr},ip={{ media_lxc_ip }},gw={{ pve_gateway }}"
-        echo CHANGED
-      fi
-  register: media_net_conf
-  when: media_status.rc == 0
-  changed_when: "'CHANGED' in media_net_conf.stdout"
-  # Same gap as unifi_lxc: `pct create` only sets net0 once, at first
-  # creation -- an existing container silently keeps its old IP/gateway
-  # forever otherwise. hwaddr must be carried forward explicitly too --
-  # omitting it from `pct set --net0` doesn't leave the MAC alone, it
-  # silently generates a new random one, orphaning any router-side MAC-IP
-  # binding.
-
-- name: Allow Docker's overlay filesystem inside this unprivileged LXC
-  ansible.builtin.lineinfile:
-    path: "/etc/pve/lxc/{{ media_ctid }}.conf"
-    line: "lxc.apparmor.profile: unconfined"
-  register: media_apparmor_conf
-  # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
-  # Proxmox line -- verified directly against the unifi LXC. See docs/adr/0008.
-
-- name: Restart the LXC to apply the AppArmor/network change, if it was already running
-  ansible.builtin.command: "pct reboot {{ media_ctid }}"
-  when: (media_apparmor_conf.changed or media_net_conf.changed | default(false)) and media_status.rc == 0
-
-- name: Start the media LXC
-  ansible.builtin.command: "pct start {{ media_ctid }}"
-  register: media_start
-  changed_when: "'already running' not in (media_start.stderr | default(''))"
-  failed_when:
-    - media_start.rc != 0
-    - "'already running' not in (media_start.stderr | default(''))"
-
-- name: Wait for the container to resolve DNS
-  ansible.builtin.command: "pct exec {{ media_ctid }} -- getent hosts download.docker.com"
-  register: media_dns
-  until: media_dns.rc == 0
-  retries: 20
-  delay: 3
-  changed_when: false
-
-- name: Install Docker inside the media LXC
-  ansible.builtin.shell:
-    cmd: |
-      pct exec {{ media_ctid }} -- bash -euc '
-        command -v docker >/dev/null 2>&1 && exit 0
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y ca-certificates curl
-        install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-        chmod a+r /etc/apt/keyrings/docker.asc
-        . /etc/os-release
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
-        apt-get update
-        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-        systemctl enable --now docker
-      '
-  register: media_docker
-  changed_when: "'Setting up docker-ce ' in media_docker.stdout"
-
-- name: Create app + data directories in the container
-  ansible.builtin.command: >-
-    pct exec {{ media_ctid }} -- mkdir -p
-    /opt/media-stack
-    {% for s in media_appdata_services %}/opt/appdata/{{ s }} {% endfor %}
-    {% for d in media_data_subdirs %}/data/{{ d }} {% endfor %}
-  changed_when: false
-
-- name: Render the media-stack .env
-  ansible.builtin.template:
-    src: env.j2
-    dest: /root/.cloudio-media.env
-    mode: "0600"
-
-- name: Copy docker-compose.yaml to the Proxmox host
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml"
-    dest: /root/.cloudio-media-compose.yaml
-    mode: "0644"
-
-- name: Push docker-compose.yaml into the container
-  ansible.builtin.command:
-    cmd: "pct push {{ media_ctid }} /root/.cloudio-media-compose.yaml /opt/media-stack/docker-compose.yaml --perms 0644"
-  changed_when: true
-
-- name: Push the rendered .env into the container
-  ansible.builtin.command:
-    cmd: "pct push {{ media_ctid }} /root/.cloudio-media.env /opt/media-stack/.env --perms 0600"
-  changed_when: true
-
-- name: Bring up the media stack
-  ansible.builtin.command:
-    cmd: >-
-      pct exec {{ media_ctid }} -- bash -c
-      "cd /opt/media-stack && docker compose up -d --remove-orphans"
-  register: media_compose
-  changed_when: >-
-    'Started' in (media_compose.stderr | default('')) or
-    'Created' in (media_compose.stderr | default(''))
+- name: Provision the media LXC and bring up its stack
+  ansible.builtin.import_role:
+    name: docker_lxc
+    allow_duplicates: true
+  vars:
+    docker_lxc_ctid: "{{ media_ctid }}"
+    docker_lxc_hostname: "{{ media_hostname }}"
+    docker_lxc_cores: "{{ media_lxc_cores }}"
+    docker_lxc_memory: "{{ media_lxc_memory }}"
+    docker_lxc_swap: "{{ media_lxc_swap }}"
+    docker_lxc_disk_gb: "{{ media_lxc_disk_gb }}"
+    docker_lxc_storage: "{{ media_lxc_storage }}"
+    docker_lxc_bridge: "{{ media_lxc_bridge }}"
+    docker_lxc_ip: "{{ media_lxc_ip }}"
+    docker_lxc_create_args: "--mp0 {{ media_disk_mount }},mp=/data,backup=0"
+    docker_lxc_stack_dir: /opt/media-stack
+    docker_lxc_dirs: >-
+      {{ media_appdata_services | map('regex_replace', '^', '/opt/appdata/') | list
+         + media_data_subdirs | map('regex_replace', '^', '/data/') | list }}
+    docker_lxc_env_template: "{{ playbook_dir }}/roles/media_lxc/templates/env.j2"
+    docker_lxc_files:
+      - { src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml", name: docker-compose.yaml, mode: "0644" }

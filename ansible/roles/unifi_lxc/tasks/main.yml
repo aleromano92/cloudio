@@ -8,163 +8,28 @@
 # MD5Sum as the hash of a zero-byte file) -- their repo, not a config bug here.
 # Docker (linuxserver.io's image) sidesteps depending on that repo entirely.
 
-- name: Ensure the LXC template is downloaded
-  ansible.builtin.command:
-    cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
-    creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
-
-- name: Verify the template actually landed on disk
-  ansible.builtin.stat:
-    path: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
-  register: unifi_template_stat
-  failed_when: >-
-    not unifi_template_stat.stat.exists or unifi_template_stat.stat.size < 1000000
-
-- name: Check whether the UniFi LXC exists
-  ansible.builtin.command: "pct status {{ unifi_ctid }}"
-  register: unifi_status
-  changed_when: false
-  failed_when: false
-  check_mode: false
-
-- name: Create the UniFi LXC
-  ansible.builtin.command:
-    cmd: >-
-      pct create {{ unifi_ctid }} {{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}
-      --hostname {{ unifi_hostname }}
-      --cores {{ unifi_lxc_cores }}
-      --memory {{ unifi_lxc_memory }}
-      --swap {{ unifi_lxc_swap }}
-      --rootfs {{ unifi_lxc_storage }}:{{ unifi_lxc_disk_gb }}
-      --net0 name=eth0,bridge={{ unifi_lxc_bridge }},ip={{ unifi_lxc_ip }},gw={{ pve_gateway }}
-      --nameserver {{ dns_nameservers[0] }}
-      --features nesting=1,keyctl=1,fuse=1
-      --unprivileged 1
-      --onboot 1
-  when: unifi_status.rc != 0
-
-- name: Keep the LXC's network config in sync with vars.yml (pct create only applies this once, at container creation)
-  ansible.builtin.shell:
-    cmd: |
-      set -e
-      current=$(grep '^net0:' /etc/pve/lxc/{{ unifi_ctid }}.conf)
-      if echo "$current" | grep -qF "ip={{ unifi_lxc_ip }}," && echo "$current" | grep -qF "gw={{ pve_gateway }}"; then
-        echo UNCHANGED
-      else
-        hwaddr=$(echo "$current" | grep -oP 'hwaddr=\K[0-9A-Fa-f:]+')
-        pct set {{ unifi_ctid }} --net0 "name=eth0,bridge={{ unifi_lxc_bridge }},hwaddr=${hwaddr},ip={{ unifi_lxc_ip }},gw={{ pve_gateway }}"
-        echo CHANGED
-      fi
-  register: unifi_net_conf
-  when: unifi_status.rc == 0
-  changed_when: "'CHANGED' in unifi_net_conf.stdout"
-  # An existing container silently keeps its OLD net0 (IP/gateway) forever
-  # otherwise, since `pct create` above only runs on first creation --
-  # changing pve_gateway/unifi_lxc_ip in vars.yml would update the repo but
-  # never actually reach an already-running container. The hwaddr must be
-  # carried forward explicitly -- omitting it from `pct set --net0` doesn't
-  # leave the MAC alone, it silently generates a NEW random one, which then
-  # orphans any router-side MAC-IP binding (verified live: the router's
-  # binding for this container broke the moment its MAC changed).
-
-- name: Allow Docker's overlay filesystem inside this unprivileged LXC
-  ansible.builtin.lineinfile:
-    path: "/etc/pve/lxc/{{ unifi_ctid }}.conf"
-    line: "lxc.apparmor.profile: unconfined"
-  register: unifi_apparmor_conf
-  # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
-  # Proxmox line -- verified directly, not assumed. See docs/adr/0008.
-
-- name: Restart the LXC to apply the AppArmor/network change, if it was already running
-  ansible.builtin.command: "pct reboot {{ unifi_ctid }}"
-  when: (unifi_apparmor_conf.changed or unifi_net_conf.changed | default(false)) and unifi_status.rc == 0
-
-- name: Start the UniFi LXC
-  ansible.builtin.command: "pct start {{ unifi_ctid }}"
-  register: unifi_start
-  changed_when: "'already running' not in (unifi_start.stderr | default(''))"
-  failed_when:
-    - unifi_start.rc != 0
-    - "'already running' not in (unifi_start.stderr | default(''))"
-
-- name: Wait for the container to resolve DNS
-  ansible.builtin.command: "pct exec {{ unifi_ctid }} -- getent hosts download.docker.com"
-  register: unifi_dns
-  until: unifi_dns.rc == 0
-  retries: 20
-  delay: 3
-  changed_when: false
-
-- name: Install Docker inside the UniFi LXC
-  ansible.builtin.shell:
-    cmd: |
-      pct exec {{ unifi_ctid }} -- bash -euc '
-        command -v docker >/dev/null 2>&1 && exit 0
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y ca-certificates curl
-        install -m 0755 -d /etc/apt/keyrings
-        curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-        chmod a+r /etc/apt/keyrings/docker.asc
-        . /etc/os-release
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
-        apt-get update
-        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-        systemctl enable --now docker
-      '
-  register: unifi_docker
-  changed_when: "'Setting up docker-ce ' in unifi_docker.stdout"
-
-- name: Create app directories in the container
-  ansible.builtin.command: >-
-    pct exec {{ unifi_ctid }} -- mkdir -p
-    /opt/unifi-stack
-    /opt/appdata/unifi
-    /opt/appdata/unifi-db
-  changed_when: false
-
-- name: Render the UniFi stack .env
-  ansible.builtin.template:
-    src: env.j2
-    dest: /root/.cloudio-unifi.env
-    mode: "0600"
-
-- name: Copy docker-compose.yaml to the Proxmox host
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../unifi-stack/docker-compose.yaml"
-    dest: /root/.cloudio-unifi-compose.yaml
-    mode: "0644"
-
-- name: Copy init-mongo.sh to the Proxmox host
-  ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../unifi-stack/init-mongo.sh"
-    dest: /root/.cloudio-unifi-init-mongo.sh
-    mode: "0755"
-
-- name: Push docker-compose.yaml into the container
-  ansible.builtin.command:
-    cmd: "pct push {{ unifi_ctid }} /root/.cloudio-unifi-compose.yaml /opt/unifi-stack/docker-compose.yaml --perms 0644"
-  changed_when: true
-
-- name: Push init-mongo.sh into the container
-  ansible.builtin.command:
-    cmd: "pct push {{ unifi_ctid }} /root/.cloudio-unifi-init-mongo.sh /opt/unifi-stack/init-mongo.sh --perms 0755"
-  changed_when: true
-
-- name: Push the rendered .env into the container
-  ansible.builtin.command:
-    cmd: "pct push {{ unifi_ctid }} /root/.cloudio-unifi.env /opt/unifi-stack/.env --perms 0600"
-  changed_when: true
-
-- name: Bring up the UniFi stack
-  ansible.builtin.command:
-    cmd: >-
-      pct exec {{ unifi_ctid }} -- bash -c
-      "cd /opt/unifi-stack && docker compose up -d --remove-orphans"
-  register: unifi_compose
-  changed_when: >-
-    'Started' in (unifi_compose.stderr | default('')) or
-    'Created' in (unifi_compose.stderr | default(''))
+- name: Provision the UniFi LXC and bring up its stack
+  ansible.builtin.import_role:
+    name: docker_lxc
+    allow_duplicates: true
+  vars:
+    docker_lxc_ctid: "{{ unifi_ctid }}"
+    docker_lxc_hostname: "{{ unifi_hostname }}"
+    docker_lxc_cores: "{{ unifi_lxc_cores }}"
+    docker_lxc_memory: "{{ unifi_lxc_memory }}"
+    docker_lxc_swap: "{{ unifi_lxc_swap }}"
+    docker_lxc_disk_gb: "{{ unifi_lxc_disk_gb }}"
+    docker_lxc_storage: "{{ unifi_lxc_storage }}"
+    docker_lxc_bridge: "{{ unifi_lxc_bridge }}"
+    docker_lxc_ip: "{{ unifi_lxc_ip }}"
+    docker_lxc_stack_dir: /opt/unifi-stack
+    docker_lxc_dirs:
+      - /opt/appdata/unifi
+      - /opt/appdata/unifi-db
+    docker_lxc_env_template: "{{ playbook_dir }}/roles/unifi_lxc/templates/env.j2"
+    docker_lxc_files:
+      - { src: "{{ playbook_dir }}/../unifi-stack/docker-compose.yaml", name: docker-compose.yaml, mode: "0644" }
+      - { src: "{{ playbook_dir }}/../unifi-stack/init-mongo.sh", name: init-mongo.sh, mode: "0755" }
 
 - name: Compute the UniFi LXC's bare IP (no CIDR suffix)
   ansible.builtin.set_fact:
@@ -214,7 +79,7 @@
 - name: Next steps for UniFi
   ansible.builtin.debug:
     msg: >-
-      UniFi is starting at https://{{ unifi_lxc_ip | regex_replace('/.*$', '') }}:8443
+      UniFi is starting at https://{{ unifi_bare_ip }}:8443
       -- give Mongo's first-run init a minute. Then create the admin account
       and adopt the U7 Pro Wall APs (set-inform if they don't appear). Turn on
       UniFi's own auto-backup (Settings -> System -> Backups) -- vzdump then
