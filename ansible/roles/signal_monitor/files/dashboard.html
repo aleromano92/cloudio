@@ -37,6 +37,21 @@
     font-size: 11.5px; line-height: 1.45; color: #ccc; text-transform: none; font-weight: 400;
     z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
   .info:hover .tip, .info:focus .tip { display: block; }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+  .tab-btn { background: #1a1a1a; border: 1px solid #2a2a2a; color: #999; padding: 6px 14px;
+    border-radius: 5px; font-size: 13px; cursor: pointer; }
+  .tab-btn.active { background: #2a2a2a; color: #fff; border-color: #3a3a3a; }
+  .tab-btn:hover { color: #ddd; }
+
+  .table-wrap { overflow-x: auto; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { padding: 7px 12px; text-align: right; border-bottom: 1px solid #222; white-space: nowrap;
+    font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: #888; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
+  tbody tr:hover td { background: #202020; }
+  td.dim { color: #555; }
 </style>
 </head>
 <body>
@@ -45,6 +60,13 @@
   <div class="stats" id="stats"></div>
 
   <div id="tooltip"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="charts" type="button">Charts</button>
+    <button class="tab-btn" data-tab="table" type="button">Table</button>
+  </div>
+
+  <div id="chartsView">
 
   <div class="chart">
     <h2>Throughput</h2>
@@ -71,6 +93,29 @@
     <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>4G modem</span><span><span class="swatch" style="background:#c78a3d"></span>5G modem</span></div>
     <div class="hint">Added after the router went dark and needed a power-cycle to recover -- a real thermal shutdown was one suspect. ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.</div>
     <div class="chart-wrap"><svg id="tempChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
+  </div>
+
+  </div>
+
+  <div id="tableView" hidden>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Download</th>
+            <th>Upload</th>
+            <th>Ping</th>
+            <th>Jitter</th>
+            <th>NR RSRP</th>
+            <th>NR SINR</th>
+            <th>4G modem</th>
+            <th>5G modem</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <script>
@@ -260,6 +305,41 @@
       attachHover(svgEl, samples, series);
     }
 
+    function avgOf(samples, key) {
+      const vals = samples.map(s => s[key]).filter(v => v != null && !isNaN(v));
+      if (!vals.length) return null;
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    }
+
+    function tableCell(v, unit) {
+      const dim = v == null || isNaN(v);
+      return `<td class="${dim ? "dim" : ""}">${dim ? "—" : fmt(v) + (unit ? " " + unit : "")}</td>`;
+    }
+
+    function tableRow(s) {
+      return `<tr>
+        <td>${new Date(s.timestamp).toLocaleString()}</td>
+        ${tableCell(s.downloadMbps)}
+        ${tableCell(s.uploadMbps)}
+        ${tableCell(s.pingMs)}
+        ${tableCell(s.jitterMs)}
+        ${tableCell(s.nrRsrp)}
+        ${tableCell(s.nrSinr)}
+        ${tableCell(s.mdmTempC)}
+        ${tableCell(s.modem5gTempC)}
+      </tr>`;
+    }
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const isTable = btn.dataset.tab === "table";
+        document.getElementById("chartsView").hidden = isTable;
+        document.getElementById("tableView").hidden = !isTable;
+      });
+    });
+
     function statBlock(label, value, unit, tip) {
       const dim = value == null;
       const info = tip ? `<span class="info" tabindex="0">i<span class="tip">${tip}</span></span>` : "";
@@ -282,21 +362,25 @@
       const text = await res.text();
       const samples = flatten(parseJsonl(text));
       const latest = samples[samples.length - 1];
+      const dayWindow = samples.filter(s => Date.now() - new Date(s.timestamp).getTime() <= 24 * 3600 * 1000);
 
       document.getElementById("sub").textContent =
         samples.length + " samples · latest " + (latest ? new Date(latest.timestamp).toLocaleString() : "n/a") +
-        " · reload this page to refresh";
+        " · stats below are 24h averages, hover a chart for the latest reading · reload this page to refresh";
 
       document.getElementById("stats").innerHTML = [
-        statBlock("Download", latest && latest.downloadMbps, "Mbps", TIPS.download),
-        statBlock("Upload", latest && latest.uploadMbps, "Mbps", TIPS.upload),
-        statBlock("Ping", latest && latest.pingMs, "ms", TIPS.ping),
-        statBlock("Jitter", latest && latest.jitterMs, "ms", TIPS.jitter),
-        statBlock("NR RSRP", latest && latest.nrRsrp, "dBm", TIPS.nrRsrp),
-        statBlock("NR SINR", latest && latest.nrSinr, "dB", TIPS.nrSinr),
-        statBlock("4G modem", latest && latest.mdmTempC, "°C", TIPS.mdmTemp),
-        statBlock("5G modem", latest && latest.modem5gTempC, "°C", TIPS.modem5gTemp),
+        statBlock("Download", avgOf(dayWindow, "downloadMbps"), "Mbps", TIPS.download),
+        statBlock("Upload", avgOf(dayWindow, "uploadMbps"), "Mbps", TIPS.upload),
+        statBlock("Ping", avgOf(dayWindow, "pingMs"), "ms", TIPS.ping),
+        statBlock("Jitter", avgOf(dayWindow, "jitterMs"), "ms", TIPS.jitter),
+        statBlock("NR RSRP", avgOf(dayWindow, "nrRsrp"), "dBm", TIPS.nrRsrp),
+        statBlock("NR SINR", avgOf(dayWindow, "nrSinr"), "dB", TIPS.nrSinr),
+        statBlock("4G modem", avgOf(dayWindow, "mdmTempC"), "°C", TIPS.mdmTemp),
+        statBlock("5G modem", avgOf(dayWindow, "modem5gTempC"), "°C", TIPS.modem5gTemp),
       ].join("");
+
+      document.getElementById("tableBody").innerHTML =
+        samples.slice().reverse().map(tableRow).join("") || `<tr><td colspan="9">no samples yet</td></tr>`;
 
       drawFixedChart(document.getElementById("throughputChart"), samples, [
         { key: "downloadMbps", color: "#4fc3a1", label: "download", unit: "Mbps" },
