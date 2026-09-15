@@ -63,287 +63,295 @@
   <div class="sub" id="sub">loading metrics.jsonl&hellip;</div>
   <div class="stats" id="stats"></div>
 
-  <div id="tooltip"></div>
-
   <div class="tabs">
     <button class="tab-btn active" data-tab="charts" type="button">Charts</button>
     <button class="tab-btn" data-tab="table" type="button">Table</button>
   </div>
 
   <div id="chartsView">
-
-  <div class="chart-grid">
-
-  <div class="chart">
-    <h2>Throughput</h2>
-    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>download Mbps</span><span><span class="swatch" style="background:#c78a3d"></span>upload Mbps</span></div>
-    <div class="chart-wrap"><svg id="throughputChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
-  </div>
-
-  <div class="chart">
-    <h2>NR RSRP (dBm)</h2>
-    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>signal power</span></div>
-    <div class="hint">Closer to 0 is stronger. &minus;80 or better: strong &middot; &minus;80 to &minus;100: workable &middot; below &minus;100: weak.</div>
-    <div class="chart-wrap"><svg id="rsrpChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
-  </div>
-
-  <div class="chart">
-    <h2>NR SINR (dB)</h2>
-    <div class="legend"><span><span class="swatch" style="background:#c78a3d"></span>signal cleanliness</span></div>
-    <div class="hint">Higher is cleaner &mdash; predicts real achievable speed better than RSRP alone. Above 13: good &middot; 0&ndash;13: fair &middot; below 0: poor.</div>
-    <div class="chart-wrap"><svg id="sinrChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
-  </div>
-
-  <div class="chart">
-    <h2>Modem Temperature (&deg;C)</h2>
-    <div class="legend"><span><span class="swatch" style="background:#4fc3a1"></span>4G modem</span><span><span class="swatch" style="background:#c78a3d"></span>5G modem</span></div>
-    <div class="hint">Added after the router went dark and needed a power-cycle to recover -- a real thermal shutdown was one suspect. ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.</div>
-    <div class="chart-wrap"><svg id="tempChart" width="900" height="180" viewBox="0 0 900 180"></svg></div>
-  </div>
-
-  </div>
-
+    <div class="chart-grid" id="chartGrid"></div>
   </div>
 
   <div id="tableView" hidden>
     <div class="table-wrap">
       <table>
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Download</th>
-            <th>Upload</th>
-            <th>Ping</th>
-            <th>Jitter</th>
-            <th>NR RSRP</th>
-            <th>NR SINR</th>
-            <th>4G modem</th>
-            <th>5G modem</th>
-          </tr>
-        </thead>
+        <thead><tr id="tableHead"></tr></thead>
         <tbody id="tableBody"></tbody>
       </table>
     </div>
   </div>
 
   <script>
-    function parseJsonl(text) {
-      return text.split("\n").filter(Boolean).map(line => {
-        try { return JSON.parse(line); } catch { return null; }
-      }).filter(Boolean);
+    // --- Readings ------------------------------------------------------------
+    // The collector writes typed readings (numbers, or null when absent), so
+    // "has a reading" is one rule everywhere.
+    const Format = {
+      value: v => (typeof v === "number" && Number.isFinite(v) ? v : null),
+      number: v => String(Math.round(v * 10) / 10),
+      signed: v => (v < 0 ? "−" + Math.abs(v) : String(v)),
+    };
+
+    // --- Metric definitions ----------------------------------------------------
+    // The one place a metric's meaning lives: where it's read from, its unit,
+    // colour, explanation and quality bands. Stat tiles, chart hints, chart
+    // threshold lines and the table all derive from this.
+    const TEMP_BANDS = { above: { at: 75, word: "caution (est.)", tone: "bad" } };
+
+    const METRICS = {
+      downloadMbps: {
+        label: "Download", unit: "Mbps", color: "#4fc3a1", legend: "download Mbps",
+        read: r => r.speedtest?.download_mbps,
+        tip: "Download throughput to the nearest Ookla server. Matters for file transfers, streaming quality, and app/OS updates.",
+      },
+      uploadMbps: {
+        label: "Upload", unit: "Mbps", color: "#c78a3d", legend: "upload Mbps",
+        read: r => r.speedtest?.upload_mbps,
+        tip: "Upload throughput to the same server. Matters for video calls, cloud backups, and anything that pushes data out &mdash; e.g. the Anran cameras' remote-view stream.",
+      },
+      pingMs: {
+        label: "Ping", unit: "ms",
+        read: r => r.speedtest?.ping_ms,
+        tip: "Round-trip time to the test server. Lower means snappier calls, gaming, and remote access (SSH/Proxmox UI over Tailscale).",
+      },
+      jitterMs: {
+        label: "Jitter", unit: "ms",
+        read: r => r.speedtest?.jitter_ms,
+        tip: "How much ping varies between packets, not just its average. High jitter causes choppy audio/video even when average ping looks fine &mdash; often a better predictor of a \"laggy\" call than ping itself.",
+      },
+      nrRsrp: {
+        label: "NR RSRP", unit: "dBm", color: "#4fc3a1", legend: "signal power",
+        read: r => r.zte?.Z5g_rsrp,
+        tip: "5G NR reference signal power from the tower, in dBm.",
+        blurb: "Closer to 0 is stronger.",
+        bands: { above: { at: -80, word: "strong" }, between: "workable", below: { at: -100, word: "weak" } },
+      },
+      nrSinr: {
+        label: "NR SINR", unit: "dB", color: "#c78a3d", legend: "signal cleanliness",
+        read: r => r.zte?.Z5g_SINR,
+        tip: "Signal-to-interference-plus-noise ratio, in dB &mdash; how clean the signal is, not just how strong.",
+        blurb: "Higher is cleaner &mdash; predicts real achievable speed better than RSRP alone.",
+        bands: { above: { at: 13, word: "good" }, between: "fair", below: { at: 0, word: "poor" } },
+      },
+      mdmTempC: {
+        label: "4G modem", unit: "°C", color: "#4fc3a1", legend: "4G modem",
+        read: r => r.zte?.pm_sensor_mdm,
+        tip: "4G modem chip temperature, in &deg;C, as reported by the router itself. Tracked to catch a thermal shutdown before it takes the connection down.",
+        bands: TEMP_BANDS,
+      },
+      modem5gTempC: {
+        label: "5G modem", unit: "°C", color: "#c78a3d", legend: "5G modem",
+        read: r => r.zte?.pm_modem_5g,
+        tip: "5G modem chip temperature, in &deg;C. Runs separately from the 4G modem; either one overheating can drop the connection.",
+        bands: TEMP_BANDS,
+      },
+    };
+
+    const TABLE_METRICS = ["downloadMbps", "uploadMbps", "pingMs", "jitterMs", "nrRsrp", "nrSinr", "mdmTempC", "modem5gTempC"];
+
+    // Fixed, domain-meaningful axes: auto-scaling misrepresents proportion, and
+    // a flat reading auto-scaled to its own range draws a degenerate axis.
+    // Different units get separate charts, never a dual axis.
+    const CHARTS = [
+      { title: "Throughput", metrics: ["downloadMbps", "uploadMbps"], range: { min: 0, max: 700 } },
+      { title: "NR RSRP (dBm)", metrics: ["nrRsrp"], range: { min: -120, max: -60 } },
+      { title: "NR SINR (dB)", metrics: ["nrSinr"], range: { min: -10, max: 30 } },
+      {
+        title: "Modem Temperature (&deg;C)", metrics: ["mdmTempC", "modem5gTempC"], range: { min: 0, max: 100 },
+        note: "ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.",
+      },
+    ];
+
+    function bandSentence(metric) {
+      const b = metric.bands;
+      if (!b || !b.above || !b.below) return "";
+      const hi = Format.signed(b.above.at), lo = Format.signed(b.below.at);
+      return `${hi} or better: ${b.above.word} &middot; ${lo} to ${hi}: ${b.between} &middot; below ${lo}: ${b.below.word}.`;
     }
 
-    // The router sometimes returns an empty string for a numeric field
-    // instead of omitting it (seen on Z5g_SINR, likely mid NR/LTE
-    // handover). JS's Number("") is 0, not NaN -- unguarded, that reads as
-    // a real "0" data point instead of "no reading", which is a worse bug
-    // than just crashing since it's a plausible-looking false value.
-    function numOrNull(v) {
-      return v == null || v === "" ? null : Number(v);
+    function bandLines(metric) {
+      const b = metric.bands || {};
+      return [
+        b.above && { at: b.above.at, label: `${b.above.word} ↑`, tone: b.above.tone || "good" },
+        b.below && { at: b.below.at, label: `${b.below.word} ↓`, tone: b.below.tone || "bad" },
+      ].filter(Boolean);
     }
 
-    function flatten(rows) {
-      return rows.map(r => ({
-        timestamp: r.timestamp,
-        downloadMbps: r.speedtest ? r.speedtest.download_mbps : null,
-        uploadMbps: r.speedtest ? r.speedtest.upload_mbps : null,
-        pingMs: r.speedtest ? r.speedtest.ping_ms : null,
-        jitterMs: r.speedtest ? r.speedtest.jitter_ms : null,
-        nrRsrp: r.zte && r.zte.login_ok ? numOrNull(r.zte.Z5g_rsrp) : null,
-        nrSinr: r.zte && r.zte.login_ok ? numOrNull(r.zte.Z5g_SINR) : null,
-        mdmTempC: r.zte && r.zte.login_ok ? numOrNull(r.zte.pm_sensor_mdm) : null,
-        modem5gTempC: r.zte && r.zte.login_ok ? numOrNull(r.zte.pm_modem_5g) : null,
-      }));
-    }
+    // --- Chart module ------------------------------------------------------------
+    // Draws one fixed-axis time series chart into a container. Owns its own
+    // size, geometry, threshold lines, empty state and hover tooltip; callers
+    // only supply readings aligned to `times`.
+    const Chart = (() => {
+      const NS = "http://www.w3.org/2000/svg";
+      const W = 900, H = 180, PAD = 34;
+      const TONES = { good: "#5fa88f", bad: "#b1544a" };
+      let tooltip;
 
-    const SVG_NS = "http://www.w3.org/2000/svg";
-    const CHART_W = 900, CHART_H = 180, CHART_PAD = 34;
-
-    function drawLine(svg, points, color) {
-      if (points.length < 2) return;
-      const path = document.createElementNS(SVG_NS, "polyline");
-      path.setAttribute("points", points.map(p => p.join(",")).join(" "));
-      path.setAttribute("fill", "none");
-      path.setAttribute("stroke", color);
-      path.setAttribute("stroke-width", "1.6");
-      svg.appendChild(path);
-    }
-
-    // One small circle per real sample, purely visual -- the actual hover
-    // interaction is handled by attachHover() below, driven by mouse
-    // position over the whole chart rather than requiring the pointer to
-    // land exactly on a 3px circle (native SVG <title> tooltips turned out
-    // too finicky to hit reliably and were dropped in favor of this).
-    function drawPoints(svg, samples, key, scale, color) {
-      const n = samples.length;
-      samples.forEach((s, i) => {
-        const v = s[key];
-        if (v == null || isNaN(v)) return;
-        const x = CHART_PAD + (i / (n - 1)) * (CHART_W - CHART_PAD * 2);
-        const y = CHART_H - CHART_PAD - ((v - scale.min) / scale.range) * (CHART_H - CHART_PAD * 2);
-        const c = document.createElementNS(SVG_NS, "circle");
-        c.setAttribute("class", "pt");
-        c.setAttribute("cx", x.toFixed(1));
-        c.setAttribute("cy", y.toFixed(1));
-        c.setAttribute("r", "3");
-        c.setAttribute("fill", color);
-        svg.appendChild(c);
-      });
-    }
-
-    // Tracks the nearest sample to the cursor's x position and shows its
-    // values in a floating tooltip -- forgiving to hover (anywhere over the
-    // chart works, not just exactly on a point).
-    function attachHover(svgEl, samples, series) {
-      const tooltip = document.getElementById("tooltip");
-      function hasData(s) { return series.some(ser => s[ser.key] != null && !isNaN(s[ser.key])); }
-      // Snaps to the nearest sample that actually HAS data for this chart,
-      // not just the nearest by x-position -- a failed collection run (ZTE
-      // login hiccup, speedtest timeout) shouldn't make hovering near it go
-      // silently blank when a real reading sits one sample over.
-      function nearestIndex(clientX) {
-        const r = svgEl.getBoundingClientRect();
-        const svgX = ((clientX - r.left) / r.width) * CHART_W;
-        const frac = (svgX - CHART_PAD) / (CHART_W - CHART_PAD * 2);
-        const idx = Math.max(0, Math.min(samples.length - 1, Math.round(frac * (samples.length - 1))));
-        if (hasData(samples[idx])) return idx;
-        for (let d = 1; d < samples.length; d++) {
-          if (idx - d >= 0 && hasData(samples[idx - d])) return idx - d;
-          if (idx + d < samples.length && hasData(samples[idx + d])) return idx + d;
-        }
-        return idx;
+      function node(name, attrs, text) {
+        const e = document.createElementNS(NS, name);
+        for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+        if (text != null) e.textContent = text;
+        return e;
       }
-      svgEl.addEventListener("mousemove", (e) => {
-        if (samples.length < 2) { tooltip.style.display = "none"; return; }
-        const s = samples[nearestIndex(e.clientX)];
-        const lines = series
-          .map((ser) => (s[ser.key] == null || isNaN(s[ser.key]) ? null : `${ser.label}: ${fmt(s[ser.key])} ${ser.unit}`))
-          .filter(Boolean);
-        if (!lines.length) { tooltip.style.display = "none"; return; }
-        tooltip.innerHTML = `<div class="tt-time">${new Date(s.timestamp).toLocaleString()}</div>` + lines.map((l) => `<div>${l}</div>`).join("");
-        tooltip.style.display = "block";
-        // Measured after display:block (a hidden element has zero size) --
-        // flips to the other side of the cursor when the default
-        // bottom-right placement would run off the viewport, which the
-        // 2-column layout makes common for the right-hand chart.
-        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
-        let left = e.clientX + 14, top = e.clientY + 14;
-        if (left + tw > window.innerWidth) left = e.clientX - tw - 14;
-        if (top + th > window.innerHeight) top = e.clientY - th - 14;
-        tooltip.style.left = Math.max(4, left) + "px";
-        tooltip.style.top = Math.max(4, top) + "px";
+
+      function tooltipEl() {
+        if (!tooltip) {
+          tooltip = document.createElement("div");
+          tooltip.id = "tooltip";
+          document.body.appendChild(tooltip);
+        }
+        return tooltip;
+      }
+
+      // Hovering anywhere over the chart snaps to the nearest sample that has a
+      // reading for this chart, so a failed collection run never blanks the
+      // tooltip when a real reading sits one sample over.
+      function hover(svg, times, series) {
+        const tip = tooltipEl();
+        const n = times.length;
+        const hasReading = i => series.some(s => s.values[i] !== null);
+
+        function nearest(clientX) {
+          const r = svg.getBoundingClientRect();
+          const frac = (((clientX - r.left) / r.width) * W - PAD) / (W - PAD * 2);
+          const idx = Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1))));
+          for (let d = 0; d < n; d++) {
+            if (idx - d >= 0 && hasReading(idx - d)) return idx - d;
+            if (idx + d < n && hasReading(idx + d)) return idx + d;
+          }
+          return -1;
+        }
+
+        svg.onmousemove = e => {
+          const i = nearest(e.clientX);
+          if (i < 0) { tip.style.display = "none"; return; }
+          const lines = series
+            .filter(s => s.values[i] !== null)
+            .map(s => `<div>${s.label}: ${Format.number(s.values[i])} ${s.unit}</div>`);
+          tip.innerHTML = `<div class="tt-time">${new Date(times[i]).toLocaleString()}</div>${lines.join("")}`;
+          tip.style.display = "block";
+          // Measured after display:block (a hidden element has zero size), then
+          // flipped to the other side of the cursor if it would leave the viewport.
+          const tw = tip.offsetWidth, th = tip.offsetHeight;
+          let left = e.clientX + 14, top = e.clientY + 14;
+          if (left + tw > window.innerWidth) left = e.clientX - tw - 14;
+          if (top + th > window.innerHeight) top = e.clientY - th - 14;
+          tip.style.left = Math.max(4, left) + "px";
+          tip.style.top = Math.max(4, top) + "px";
+        };
+        svg.onmouseleave = () => { tip.style.display = "none"; };
+      }
+
+      function render(container, { times, series, range, bands = [] }) {
+        const svg = node("svg", { viewBox: `0 0 ${W} ${H}` });
+        container.replaceChildren(svg);
+
+        if (!series.some(s => s.values.filter(v => v !== null).length >= 2)) {
+          svg.appendChild(node("text", { x: W / 2, y: H / 2, fill: "#555", "text-anchor": "middle", "font-size": 12 }, "not enough data yet"));
+          return;
+        }
+
+        const n = times.length;
+        const x = i => PAD + (n === 1 ? 0 : i / (n - 1)) * (W - PAD * 2);
+        const y = v => H - PAD - ((v - range.min) / (range.max - range.min)) * (H - PAD * 2);
+
+        const drawn = new Set();
+        for (const band of bands) {
+          if (drawn.has(band.at) || band.at < range.min || band.at > range.max) continue;
+          drawn.add(band.at);
+          const color = TONES[band.tone];
+          svg.appendChild(node("line", {
+            x1: PAD, x2: W - 4, y1: y(band.at).toFixed(1), y2: y(band.at).toFixed(1),
+            stroke: color, "stroke-width": 1, "stroke-dasharray": "4,3", opacity: 0.6,
+          }));
+          svg.appendChild(node("text", { class: "threshold-label", x: PAD + 4, y: (y(band.at) - 3).toFixed(1), fill: color }, band.label));
+        }
+
+        for (const s of series) {
+          const points = s.values.flatMap((v, i) => (v === null ? [] : [[x(i).toFixed(1), y(v).toFixed(1)]]));
+          if (points.length >= 2) {
+            svg.appendChild(node("polyline", { points: points.map(p => p.join(",")).join(" "), fill: "none", stroke: s.color, "stroke-width": 1.6 }));
+          }
+          for (const [cx, cy] of points) {
+            svg.appendChild(node("circle", { class: "pt", cx, cy, r: 3, fill: s.color }));
+          }
+        }
+
+        const axisColor = series.length === 1 ? series[0].color : "#888";
+        svg.appendChild(node("text", { x: 4, y: PAD, fill: axisColor, "font-size": 10 }, Format.number(range.max)));
+        svg.appendChild(node("text", { x: 4, y: H - PAD + 4, fill: axisColor, "font-size": 10 }, Format.number(range.min)));
+
+        hover(svg, times, series);
+      }
+
+      return { render };
+    })();
+
+    // --- Page ----------------------------------------------------------------------
+    function parseJsonl(text) {
+      return text.split("\n").filter(Boolean).flatMap(line => {
+        try { return [JSON.parse(line)]; } catch { return []; }
       });
-      svgEl.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
     }
 
-    // A dashed reference line at a meaningful domain threshold (e.g. the
-    // "weak" boundary for RSRP) -- drawn first so the data line and its
-    // points render on top of it.
-    function drawThreshold(svg, scale, value, label, color) {
-      if (value == null || value < scale.min || value > scale.max) return;
-      const y = CHART_H - CHART_PAD - ((value - scale.min) / scale.range) * (CHART_H - CHART_PAD * 2);
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("x1", CHART_PAD); line.setAttribute("x2", CHART_W - 4);
-      line.setAttribute("y1", y.toFixed(1)); line.setAttribute("y2", y.toFixed(1));
-      line.setAttribute("stroke", color);
-      line.setAttribute("stroke-width", "1");
-      line.setAttribute("stroke-dasharray", "4,3");
-      line.setAttribute("opacity", "0.6");
-      svg.appendChild(line);
-      const t = document.createElementNS(SVG_NS, "text");
-      t.setAttribute("class", "threshold-label");
-      t.setAttribute("x", CHART_PAD + 4);
-      t.setAttribute("y", (y - 3).toFixed(1));
-      t.setAttribute("fill", color);
-      t.setAttribute("text-anchor", "start");
-      t.textContent = label;
-      svg.appendChild(t);
-    }
-
-    function fmt(v) { return Math.round(v * 10) / 10; }
-
-    function emptyChart(svgEl) {
-      svgEl.innerHTML = "";
-      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      t.setAttribute("x", CHART_W / 2); t.setAttribute("y", CHART_H / 2);
-      t.setAttribute("fill", "#555"); t.setAttribute("text-anchor", "middle");
-      t.setAttribute("font-size", "12");
-      t.textContent = "not enough data yet";
-      svgEl.appendChild(t);
-    }
-
-    function hasEnoughData(samples, keys) {
-      return keys.some(k => samples.filter(s => s[k] != null && !isNaN(s[k])).length >= 2);
-    }
-
-    function pointsFor(samples, key, scale) {
-      const n = samples.length, pts = [];
-      samples.forEach((s, i) => {
-        const v = s[key];
-        if (v == null || isNaN(v)) return;
-        const x = CHART_PAD + (i / (n - 1)) * (CHART_W - CHART_PAD * 2);
-        const y = CHART_H - CHART_PAD - ((v - scale.min) / scale.range) * (CHART_H - CHART_PAD * 2);
-        pts.push([x.toFixed(1), y.toFixed(1)]);
-      });
-      return pts;
-    }
-
-    function axisLabels(svgEl, scale, color, side) {
-      const x = side === "left" ? 4 : CHART_W - 4;
-      const anchor = side === "left" ? "start" : "end";
-      [[scale.min, CHART_H - CHART_PAD + 4], [scale.max, CHART_PAD]].forEach(([v, y]) => {
-        const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        t.setAttribute("x", x); t.setAttribute("y", y);
-        t.setAttribute("fill", color); t.setAttribute("font-size", "10");
-        t.setAttribute("text-anchor", anchor);
-        t.textContent = fmt(v);
-        svgEl.appendChild(t);
+    function toSamples(rows) {
+      return rows.map(r => {
+        const sample = { timestamp: r.timestamp };
+        for (const [key, metric] of Object.entries(METRICS)) sample[key] = Format.value(metric.read(r));
+        return sample;
       });
     }
 
-    // Fixed, domain-meaningful axis (not derived from the data) -- an
-    // auto-scaled axis still misrepresents proportion (e.g. a window that
-    // happens to span only 34-272 exaggerates variation vs. the connection's
-    // real 0-700 Mbps headroom), and a flat/near-flat reading auto-scaled
-    // to its own tiny range produces a degenerate axis (identical min/max
-    // labels) that reads as a bug. One or more series can share a fixed
-    // range when they're the same unit; different units get separate charts
-    // entirely rather than a dual axis, which was clearer to mislabel than
-    // to read correctly.
-    function drawFixedChart(svgEl, samples, series, range, thresholds) {
-      svgEl.innerHTML = "";
-      if (!hasEnoughData(samples, series.map(s => s.key))) { emptyChart(svgEl); return; }
-      const scale = { min: range.min, max: range.max, range: range.max - range.min };
-      (thresholds || []).forEach(t => drawThreshold(svgEl, scale, t.value, t.label, t.color));
-      series.forEach(s => drawLine(svgEl, pointsFor(samples, s.key, scale), s.color));
-      series.forEach(s => drawPoints(svgEl, samples, s.key, scale, s.color));
-      axisLabels(svgEl, scale, series.length === 1 ? series[0].color : "#888", "left");
-      attachHover(svgEl, samples, series);
+    function average(samples, key) {
+      const values = samples.map(s => s[key]).filter(v => v !== null);
+      return values.length ? values.reduce((a, b) => a + b, 0) / values.length : null;
     }
 
-    function avgOf(samples, key) {
-      const vals = samples.map(s => s[key]).filter(v => v != null && !isNaN(v));
-      if (!vals.length) return null;
-      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    function renderStats(samples) {
+      const day = samples.filter(s => Date.now() - new Date(s.timestamp).getTime() <= 24 * 3600 * 1000);
+      document.getElementById("stats").innerHTML = TABLE_METRICS.map(key => {
+        const metric = METRICS[key];
+        const value = average(day, key);
+        const tip = [metric.tip, bandSentence(metric)].filter(Boolean).join(" ");
+        return `<div class="stat">
+          <div class="label">${metric.label}<span class="info" tabindex="0">i<span class="tip">${tip}</span></span></div>
+          <div class="value ${value === null ? "dim" : ""}">${value === null ? "—" : `${Format.number(value)} ${metric.unit}`}</div>
+        </div>`;
+      }).join("");
     }
 
-    function tableCell(v, unit) {
-      const dim = v == null || isNaN(v);
-      return `<td class="${dim ? "dim" : ""}">${dim ? "—" : fmt(v) + (unit ? " " + unit : "")}</td>`;
+    function renderTable(samples) {
+      document.getElementById("tableHead").innerHTML =
+        "<th>Time</th>" + TABLE_METRICS.map(key => `<th>${METRICS[key].label} (${METRICS[key].unit})</th>`).join("");
+      document.getElementById("tableBody").innerHTML = samples.slice().reverse().map(s =>
+        `<tr><td>${new Date(s.timestamp).toLocaleString()}</td>${TABLE_METRICS.map(key =>
+          s[key] === null ? `<td class="dim">—</td>` : `<td>${Format.number(s[key])}</td>`).join("")}</tr>`
+      ).join("") || `<tr><td colspan="${TABLE_METRICS.length + 1}">no samples yet</td></tr>`;
     }
 
-    function tableRow(s) {
-      return `<tr>
-        <td>${new Date(s.timestamp).toLocaleString()}</td>
-        ${tableCell(s.downloadMbps)}
-        ${tableCell(s.uploadMbps)}
-        ${tableCell(s.pingMs)}
-        ${tableCell(s.jitterMs)}
-        ${tableCell(s.nrRsrp)}
-        ${tableCell(s.nrSinr)}
-        ${tableCell(s.mdmTempC)}
-        ${tableCell(s.modem5gTempC)}
-      </tr>`;
+    function renderCharts(samples) {
+      const grid = document.getElementById("chartGrid");
+      grid.replaceChildren();
+      const times = samples.map(s => s.timestamp);
+
+      for (const chart of CHARTS) {
+        const metrics = chart.metrics.map(key => METRICS[key]);
+        const hints = [...new Set([chart.note, ...metrics.map(m => [m.blurb, bandSentence(m)].filter(Boolean).join(" "))].filter(Boolean))];
+
+        const block = document.createElement("div");
+        block.className = "chart";
+        block.innerHTML = `<h2>${chart.title}</h2>
+          <div class="legend">${metrics.map(m => `<span><span class="swatch" style="background:${m.color}"></span>${m.legend}</span>`).join("")}</div>
+          ${hints.map(h => `<div class="hint">${h}</div>`).join("")}
+          <div class="chart-wrap"></div>`;
+        grid.appendChild(block);
+
+        Chart.render(block.querySelector(".chart-wrap"), {
+          times,
+          series: chart.metrics.map(key => ({ ...METRICS[key], values: samples.map(s => s[key]) })),
+          range: chart.range,
+          bands: metrics.flatMap(bandLines),
+        });
+      }
     }
 
     document.querySelectorAll(".tab-btn").forEach(btn => {
@@ -356,74 +364,18 @@
       });
     });
 
-    function statBlock(label, value, unit, tip) {
-      const dim = value == null;
-      const info = tip ? `<span class="info" tabindex="0">i<span class="tip">${tip}</span></span>` : "";
-      return `<div class="stat"><div class="label">${label}${info}</div><div class="value ${dim ? "dim" : ""}">${dim ? "—" : Math.round(value * 10) / 10 + " " + unit}</div></div>`;
-    }
-
-    const TIPS = {
-      download: "Download throughput to the nearest Ookla server. Matters for file transfers, streaming quality, and app/OS updates.",
-      upload: "Upload throughput to the same server. Matters for video calls, cloud backups, and anything that pushes data out &mdash; e.g. the Anran cameras' remote-view stream.",
-      ping: "Round-trip time to the test server. Lower means snappier calls, gaming, and remote access (SSH/Proxmox UI over Tailscale).",
-      jitter: "How much ping varies between packets, not just its average. High jitter causes choppy audio/video even when average ping looks fine &mdash; often a better predictor of a \"laggy\" call than ping itself.",
-      nrRsrp: "5G NR reference signal power from the tower, in dBm (closer to 0 = stronger). Roughly: &minus;80 or better is strong, &minus;80 to &minus;100 is workable, below &minus;100 is weak.",
-      nrSinr: "Signal-to-interference-plus-noise ratio, in dB &mdash; how clean the signal is, not just how strong. This predicts your real achievable speed better than RSRP alone. Above 13dB is good, 0&ndash;13dB is fair, below 0dB is poor.",
-      mdmTemp: "4G modem chip temperature, in &deg;C, as reported by the router itself. Added to catch a thermal shutdown before it takes the connection down again.",
-      modem5gTemp: "5G modem chip temperature, in &deg;C. Runs separately from the 4G modem; either one overheating can drop the connection.",
-    };
-
     async function load() {
       const res = await fetch("metrics.jsonl", { cache: "no-store" });
-      const text = await res.text();
-      const samples = flatten(parseJsonl(text));
+      const samples = toSamples(parseJsonl(await res.text()));
       const latest = samples[samples.length - 1];
-      const dayWindow = samples.filter(s => Date.now() - new Date(s.timestamp).getTime() <= 24 * 3600 * 1000);
 
       document.getElementById("sub").textContent =
         samples.length + " samples · latest " + (latest ? new Date(latest.timestamp).toLocaleString() : "n/a") +
         " · stats below are 24h averages, hover a chart for the latest reading · reload this page to refresh";
 
-      document.getElementById("stats").innerHTML = [
-        statBlock("Download", avgOf(dayWindow, "downloadMbps"), "Mbps", TIPS.download),
-        statBlock("Upload", avgOf(dayWindow, "uploadMbps"), "Mbps", TIPS.upload),
-        statBlock("Ping", avgOf(dayWindow, "pingMs"), "ms", TIPS.ping),
-        statBlock("Jitter", avgOf(dayWindow, "jitterMs"), "ms", TIPS.jitter),
-        statBlock("NR RSRP", avgOf(dayWindow, "nrRsrp"), "dBm", TIPS.nrRsrp),
-        statBlock("NR SINR", avgOf(dayWindow, "nrSinr"), "dB", TIPS.nrSinr),
-        statBlock("4G modem", avgOf(dayWindow, "mdmTempC"), "°C", TIPS.mdmTemp),
-        statBlock("5G modem", avgOf(dayWindow, "modem5gTempC"), "°C", TIPS.modem5gTemp),
-      ].join("");
-
-      document.getElementById("tableBody").innerHTML =
-        samples.slice().reverse().map(tableRow).join("") || `<tr><td colspan="9">no samples yet</td></tr>`;
-
-      drawFixedChart(document.getElementById("throughputChart"), samples, [
-        { key: "downloadMbps", color: "#4fc3a1", label: "download", unit: "Mbps" },
-        { key: "uploadMbps", color: "#c78a3d", label: "upload", unit: "Mbps" },
-      ], { min: 0, max: 700 });
-
-      drawFixedChart(document.getElementById("rsrpChart"), samples,
-        [{ key: "nrRsrp", color: "#4fc3a1", label: "NR RSRP", unit: "dBm" }],
-        { min: -120, max: -60 },
-        [
-          { value: -80, label: "strong ↑", color: "#5fa88f" },
-          { value: -100, label: "weak ↓", color: "#b1544a" },
-        ]);
-
-      drawFixedChart(document.getElementById("sinrChart"), samples,
-        [{ key: "nrSinr", color: "#c78a3d", label: "NR SINR", unit: "dB" }],
-        { min: -10, max: 30 },
-        [
-          { value: 13, label: "good ↑", color: "#5fa88f" },
-          { value: 0, label: "poor ↓", color: "#b1544a" },
-        ]);
-
-      drawFixedChart(document.getElementById("tempChart"), samples, [
-        { key: "mdmTempC", color: "#4fc3a1", label: "4G modem", unit: "°C" },
-        { key: "modem5gTempC", color: "#c78a3d", label: "5G modem", unit: "°C" },
-      ], { min: 0, max: 100 },
-        [{ value: 75, label: "caution (est.) ↑", color: "#b1544a" }]);
+      renderStats(samples);
+      renderTable(samples);
+      renderCharts(samples);
     }
 
     load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });
