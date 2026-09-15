@@ -44,7 +44,7 @@
   changed_when: false
   failed_when: false
 
-- name: Connect Tailscale
+- name: Connect Tailscale (first-time auth only)
   ansible.builtin.command: >-
     tailscale up
     --authkey {{ vault_tailscale_auth_key }}
@@ -54,3 +54,28 @@
     - vault_tailscale_auth_key | default('') | length > 0
     - '"\"Running\"" not in ts_status.stdout'
   no_log: true
+
+- name: Keep the advertised subnet route in sync with vars.yml (tailscale up above only runs once, at first auth)
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      current=$(tailscale debug prefs 2>/dev/null | tr -d ' \t\n' | grep -oP '"AdvertiseRoutes":\[\K[^]]*')
+      want='"{{ tailscale_advertise_routes }}"'
+      if [ "$current" = "$want" ]; then
+        echo UNCHANGED
+      else
+        tailscale set --advertise-routes={{ tailscale_advertise_routes }}
+        echo CHANGED
+      fi
+  register: ts_route_sync
+  when:
+    - vault_tailscale_auth_key | default('') | length > 0
+    - '"\"Running\"" in ts_status.stdout'
+  changed_when: "'CHANGED' in ts_route_sync.stdout"
+  # Found live during the LAN renumber: "Connect Tailscale" above only runs
+  # `tailscale up` (which is what actually sets --advertise-routes) on FIRST
+  # auth, gated on the backend not already being "Running" -- but Tailscale
+  # never disconnects across a LAN change (it rides the WAN, not the LAN), so
+  # that condition was false on every subsequent run and the advertised route
+  # silently stayed on the OLD subnet forever, with no error anywhere.
+  # `tailscale set` updates it without needing the authkey again.
