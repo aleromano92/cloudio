@@ -6,9 +6,9 @@
 # ============================================================================
 
 # --- Node / LAN -------------------------------------------------------------
-pve_ip: "192.168.0.10"          # static IP given to Proxmox at install
-pve_gateway: "192.168.0.1"      # new house router (moved 2026-09-14)
-lan_cidr: "192.168.0.0/24"
+pve_ip: "192.168.7.10"          # static IP given to Proxmox at install
+pve_gateway: "192.168.7.1"      # renumbered off 192.168.0.0/24 to avoid Tailscale subnet-route collisions (2026-09-15)
+lan_cidr: "192.168.7.0/24"
 timezone: "Europe/Rome"
 # Used for the host's own /etc/resolv.conf AND every LXC's --nameserver.
 # Deliberately points at the router itself (derived from pve_gateway, not a
@@ -93,7 +93,7 @@ media_lxc_swap: 512
 media_lxc_disk_gb: 12
 media_lxc_storage: "local-lvm"
 media_lxc_bridge: "vmbr0"
-media_lxc_ip: "192.168.0.12/24"
+media_lxc_ip: "192.168.7.12/24"
 media_puid: 1000
 media_pgid: 1000
 media_appdata_services:
@@ -119,7 +119,7 @@ unifi_lxc_swap: 512
 unifi_lxc_disk_gb: 16          # Docker images + Mongo's WiredTiger data add up
 unifi_lxc_storage: "local-lvm"
 unifi_lxc_bridge: "vmbr0"
-unifi_lxc_ip: "192.168.0.13/24"
+unifi_lxc_ip: "192.168.7.13/24"
 unifi_puid: 1000
 unifi_pgid: 1000
 unifi_mongo_root_user: "root"
@@ -145,7 +145,7 @@ ookla_speedtest_version: "1.2.0"
 # admin password -- the router locks logins out after 5 failed attempts
 # (MAX_LOGIN_COUNT), and this runs unattended.
 zte_router_enabled: true
-zte_router_ip: "192.168.0.1"
+zte_router_ip: "192.168.7.1"
 
 # Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.
 # a Gmail app password) -- the text digest under signal_log_dir/digests/
