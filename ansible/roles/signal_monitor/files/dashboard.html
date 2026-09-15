@@ -222,8 +222,16 @@
         if (!lines.length) { tooltip.style.display = "none"; return; }
         tooltip.innerHTML = `<div class="tt-time">${new Date(s.timestamp).toLocaleString()}</div>` + lines.map((l) => `<div>${l}</div>`).join("");
         tooltip.style.display = "block";
-        tooltip.style.left = e.clientX + 14 + "px";
-        tooltip.style.top = e.clientY + 14 + "px";
+        // Measured after display:block (a hidden element has zero size) --
+        // flips to the other side of the cursor when the default
+        // bottom-right placement would run off the viewport, which the
+        // 2-column layout makes common for the right-hand chart.
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let left = e.clientX + 14, top = e.clientY + 14;
+        if (left + tw > window.innerWidth) left = e.clientX - tw - 14;
+        if (top + th > window.innerHeight) top = e.clientY - th - 14;
+        tooltip.style.left = Math.max(4, left) + "px";
+        tooltip.style.top = Math.max(4, top) + "px";
       });
       svgEl.addEventListener("mouseleave", () => { tooltip.style.display = "none"; });
     }
