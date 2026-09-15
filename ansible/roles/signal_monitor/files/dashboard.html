@@ -252,10 +252,10 @@
       svg.appendChild(line);
       const t = document.createElementNS(SVG_NS, "text");
       t.setAttribute("class", "threshold-label");
-      t.setAttribute("x", CHART_W - 6);
+      t.setAttribute("x", CHART_PAD + 4);
       t.setAttribute("y", (y - 3).toFixed(1));
       t.setAttribute("fill", color);
-      t.setAttribute("text-anchor", "end");
+      t.setAttribute("text-anchor", "start");
       t.textContent = label;
       svg.appendChild(t);
     }
