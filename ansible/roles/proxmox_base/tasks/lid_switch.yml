@@ -1,0 +1,17 @@
+---
+# This box is a repurposed laptop (Sony Vaio) -- systemd-logind suspends on
+# lid-close by default, which silently takes the whole server offline
+# (network dead, Tailscale unreachable) without it actually being "off".
+# Found the hard way: router came back after a power-cycle, pve didn't,
+# and closing/opening the lid was the actual fix.
+- name: Ignore the lid switch instead of suspending on close
+  ansible.builtin.lineinfile:
+    path: /etc/systemd/logind.conf
+    regexp: "^#?{{ item }}="
+    line: "{{ item }}=ignore"
+  loop:
+    - HandleLidSwitch
+    - HandleLidSwitchExternalPower
+    - HandleLidSwitchDocked
+  register: logind_conf
+  notify: restart systemd-logind

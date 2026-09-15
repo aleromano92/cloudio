@@ -10,3 +10,8 @@
   ansible.builtin.systemd:
     name: pveproxy
     state: restarted
+
+- name: restart systemd-logind
+  ansible.builtin.systemd:
+    name: systemd-logind
+    state: restarted

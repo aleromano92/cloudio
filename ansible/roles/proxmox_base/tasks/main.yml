@@ -16,6 +16,10 @@
   when: blacklist_nvidia | bool
   tags: ["gpu"]
 
+- name: Ignore the lid switch (this is a repurposed laptop)
+  ansible.builtin.import_tasks: lid_switch.yml
+  tags: ["power"]
+
 - name: Mount the external media drive
   ansible.builtin.import_tasks: usb_media_mount.yml
   tags: ["storage"]
