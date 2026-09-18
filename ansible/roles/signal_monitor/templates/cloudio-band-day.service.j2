@@ -5,5 +5,10 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/cloudio-band-day.sh
-TimeoutStartSec=300
+# The router accepts one logged-in session at a time and answers an evicted
+# one with empty strings rather than an error, so two of our own jobs talking
+# to it at once would silently corrupt each other's readings. One lock, held
+# for as long as the job talks to the router.
+ExecStart=/usr/bin/flock --wait 300 /run/lock/cloudio-zte.lock /usr/local/sbin/cloudio-band-day.sh
+# Covers the lock wait plus the band change and its settle.
+TimeoutStartSec=600
