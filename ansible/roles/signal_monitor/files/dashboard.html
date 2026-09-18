@@ -25,6 +25,14 @@
   .hint { font-size: 11px; color: #666; margin: -2px 0 8px; }
   .pt { pointer-events: none; }
   .threshold-label { font-size: 9px; }
+  .tick-label { font-size: 9px; }
+  .weeknav { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .weeknav button { background: #1a1a1a; border: 1px solid #2a2a2a; color: #ccc; width: 30px;
+    height: 28px; border-radius: 5px; font-size: 14px; cursor: pointer; }
+  .weeknav button:disabled { color: #444; cursor: default; }
+  .weeknav button:not(:disabled):hover { background: #2a2a2a; }
+  .weeknav .week-label { font-size: 13px; min-width: 210px; }
+  .weeknav .week-meta { color: #777; font-size: 11px; }
   .chart-wrap { position: relative; }
   .chart-wrap svg { cursor: crosshair; width: 100%; height: auto; display: block; }
 
@@ -62,6 +70,13 @@
   <h1>cloudio signal</h1>
   <div class="sub" id="sub">loading metrics.jsonl&hellip;</div>
   <div class="stats" id="stats"></div>
+
+  <div class="weeknav">
+    <button id="weekPrev" type="button" title="Previous week">&lsaquo;</button>
+    <span class="week-label" id="weekLabel"></span>
+    <button id="weekNext" type="button" title="Next week">&rsaquo;</button>
+    <span class="week-meta" id="weekMeta"></span>
+  </div>
 
   <div class="tabs">
     <button class="tab-btn active" data-tab="charts" type="button">Charts</button>
@@ -147,6 +162,16 @@
     };
 
     const TABLE_METRICS = ["downloadMbps", "uploadMbps", "pingMs", "jitterMs", "nrRsrp", "nrSinr", "mdmTempC", "modem5gTempC"];
+
+    // Text readings: identity, not quantity. Never averaged or charted -- a
+    // change of BTS is the interesting event, and cell_id's leading digits are
+    // the BTS, so the two columns together show sector moves vs mast moves.
+    const TEXT_COLUMNS = [
+      { key: "mode", label: "Mode", read: r => r.zte?.network_type },
+      { key: "bts", label: "BTS", read: r => r.zte?.enodeb_id },
+      { key: "cell", label: "Cell", read: r => r.zte?.cell_id },
+      { key: "band", label: "Band", read: r => r.zte?.lte_band },
+    ];
 
     // Fixed, domain-meaningful axes: auto-scaling misrepresents proportion, and
     // a flat reading auto-scaled to its own range draws a degenerate axis.
@@ -241,6 +266,25 @@
         svg.onmouseleave = () => { tip.style.display = "none"; };
       }
 
+      // Ticks at local midnight and midday, so a reading can be placed in the
+      // day without hovering it. Positions come from the sample index, since
+      // that's what the x axis is.
+      function timeTicks(times) {
+        const half = t => Math.floor((new Date(t) - new Date(t).getTimezoneOffset() * 60000) / 43200000);
+        const ticks = [];
+        for (let i = 1; i < times.length; i++) {
+          if (half(times[i]) === half(times[i - 1])) continue;
+          const d = new Date(times[i]);
+          ticks.push({
+            i,
+            label: d.getHours() < 12
+              ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric" })
+              : "12:00",
+          });
+        }
+        return ticks;
+      }
+
       function render(container, { times, series, range, bands = [] }) {
         const svg = node("svg", { viewBox: `0 0 ${W} ${H}` });
         container.replaceChildren(svg);
@@ -253,6 +297,16 @@
         const n = times.length;
         const x = i => PAD + (n === 1 ? 0 : i / (n - 1)) * (W - PAD * 2);
         const y = v => H - PAD - ((v - range.min) / (range.max - range.min)) * (H - PAD * 2);
+
+        for (const tick of timeTicks(times)) {
+          svg.appendChild(node("line", {
+            x1: x(tick.i).toFixed(1), x2: x(tick.i).toFixed(1), y1: PAD - 8, y2: H - PAD,
+            stroke: "#333", "stroke-width": 1,
+          }));
+          svg.appendChild(node("text", {
+            class: "tick-label", x: x(tick.i).toFixed(1), y: H - PAD + 13, fill: "#777", "text-anchor": "middle",
+          }, tick.label));
+        }
 
         const drawn = new Set();
         for (const band of bands) {
@@ -293,12 +347,62 @@
       });
     }
 
+    // logrotate keeps the older weeks next to the live file as .1.gz, .2.gz …
+    // Fetching and inflating those is what makes navigating back a week work;
+    // a missing file just ends the walk.
+    async function fetchRotated() {
+      if (!window.DecompressionStream) return [];
+      const rows = [];
+      for (let n = 1; n <= 12; n++) {
+        const res = await fetch(`metrics.jsonl.${n}.gz`, { cache: "no-store" }).catch(() => null);
+        if (!res || !res.ok) break;
+        const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
+        rows.push(...parseJsonl(await new Response(stream).text()));
+      }
+      return rows;
+    }
+
+    async function fetchAllRows() {
+      const live = await fetch("metrics.jsonl", { cache: "no-store" });
+      const rows = parseJsonl(await live.text()).concat(await fetchRotated());
+      return rows.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    }
+
     function toSamples(rows) {
       return rows.map(r => {
         const sample = { timestamp: r.timestamp };
         for (const [key, metric] of Object.entries(METRICS)) sample[key] = Format.value(metric.read(r));
+        for (const col of TEXT_COLUMNS) {
+          const v = col.read(r);
+          sample[col.key] = v === null || v === undefined || v === "" ? null : String(v);
+        }
         return sample;
       });
+    }
+
+    // Weeks run Monday to Sunday in the viewer's own timezone, since that's
+    // how the nights being compared are experienced.
+    function weekStart(timestamp) {
+      const d = new Date(timestamp);
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+      return d;
+    }
+
+    function groupByWeek(samples) {
+      const weeks = new Map();
+      for (const s of samples) {
+        const key = weekStart(s.timestamp).getTime();
+        if (!weeks.has(key)) weeks.set(key, []);
+        weeks.get(key).push(s);
+      }
+      return [...weeks.entries()].sort((a, b) => a[0] - b[0]).map(([start, samples]) => ({ start, samples }));
+    }
+
+    function weekLabel(start) {
+      const from = new Date(start), to = new Date(start + 6 * 86400000);
+      const fmt = d => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+      return `${fmt(from)} – ${fmt(to)}`;
     }
 
     function average(samples, key) {
@@ -307,10 +411,9 @@
     }
 
     function renderStats(samples) {
-      const day = samples.filter(s => Date.now() - new Date(s.timestamp).getTime() <= 24 * 3600 * 1000);
       document.getElementById("stats").innerHTML = TABLE_METRICS.map(key => {
         const metric = METRICS[key];
-        const value = average(day, key);
+        const value = average(samples, key);
         const tip = [metric.tip, bandSentence(metric)].filter(Boolean).join(" ");
         return `<div class="stat">
           <div class="label">${metric.label}<span class="info" tabindex="0">i<span class="tip">${tip}</span></span></div>
@@ -321,11 +424,15 @@
 
     function renderTable(samples) {
       document.getElementById("tableHead").innerHTML =
-        "<th>Time</th>" + TABLE_METRICS.map(key => `<th>${METRICS[key].label} (${METRICS[key].unit})</th>`).join("");
+        "<th>Time</th>"
+        + TABLE_METRICS.map(key => `<th>${METRICS[key].label} (${METRICS[key].unit})</th>`).join("")
+        + TEXT_COLUMNS.map(col => `<th>${col.label}</th>`).join("");
+      const columns = s =>
+        TABLE_METRICS.map(key => (s[key] === null ? `<td class="dim">—</td>` : `<td>${Format.number(s[key])}</td>`)).join("")
+        + TEXT_COLUMNS.map(col => (s[col.key] === null ? `<td class="dim">—</td>` : `<td>${s[col.key]}</td>`)).join("");
       document.getElementById("tableBody").innerHTML = samples.slice().reverse().map(s =>
-        `<tr><td>${new Date(s.timestamp).toLocaleString()}</td>${TABLE_METRICS.map(key =>
-          s[key] === null ? `<td class="dim">—</td>` : `<td>${Format.number(s[key])}</td>`).join("")}</tr>`
-      ).join("") || `<tr><td colspan="${TABLE_METRICS.length + 1}">no samples yet</td></tr>`;
+        `<tr><td>${new Date(s.timestamp).toLocaleString()}</td>${columns(s)}</tr>`
+      ).join("") || `<tr><td colspan="${TABLE_METRICS.length + TEXT_COLUMNS.length + 1}">no samples yet</td></tr>`;
     }
 
     function renderCharts(samples) {
@@ -364,18 +471,38 @@
       });
     });
 
+    let weeks = [];
+    let selected = 0;
+
+    function showWeek(index) {
+      selected = Math.max(0, Math.min(weeks.length - 1, index));
+      const week = weeks[selected];
+
+      document.getElementById("weekLabel").textContent = weekLabel(week.start);
+      document.getElementById("weekMeta").textContent =
+        `${week.samples.length} samples · week ${selected + 1} of ${weeks.length}`;
+      document.getElementById("weekPrev").disabled = selected === 0;
+      document.getElementById("weekNext").disabled = selected === weeks.length - 1;
+
+      renderStats(week.samples);
+      renderTable(week.samples);
+      renderCharts(week.samples);
+    }
+
+    document.getElementById("weekPrev").addEventListener("click", () => showWeek(selected - 1));
+    document.getElementById("weekNext").addEventListener("click", () => showWeek(selected + 1));
+
     async function load() {
-      const res = await fetch("metrics.jsonl", { cache: "no-store" });
-      const samples = toSamples(parseJsonl(await res.text()));
+      const samples = toSamples(await fetchAllRows());
       const latest = samples[samples.length - 1];
 
       document.getElementById("sub").textContent =
-        samples.length + " samples · latest " + (latest ? new Date(latest.timestamp).toLocaleString() : "n/a") +
-        " · stats below are 24h averages, hover a chart for the latest reading · reload this page to refresh";
+        samples.length + " samples in total · latest " + (latest ? new Date(latest.timestamp).toLocaleString() : "n/a") +
+        " · stats below average the selected week, hover a chart for a single reading · reload this page to refresh";
 
-      renderStats(samples);
-      renderTable(samples);
-      renderCharts(samples);
+      weeks = groupByWeek(samples);
+      if (!weeks.length) weeks = [{ start: weekStart(new Date().toISOString()).getTime(), samples: [] }];
+      showWeek(weeks.length - 1);
     }
 
     load().catch(err => { document.getElementById("sub").textContent = "failed to load metrics.jsonl: " + err; });
