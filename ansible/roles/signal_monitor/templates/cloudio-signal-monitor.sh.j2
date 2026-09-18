@@ -12,6 +12,8 @@
 #   zte_read_signal {{ zte_router_ip }} "$ZTE_PASSWORD" | jq .
 set -uo pipefail
 
+. /usr/local/lib/cloudio/zte-session.sh
+
 # cell_id is the full E-UTRAN cell identity; its leading digits are the
 # enodeb_id (the site/BTS), so a change in enodeb_id means the modem moved to
 # a different mast, not just a different sector. ngbr_cell_info lists the
@@ -19,68 +21,41 @@ set -uo pipefail
 # cell existed at all.
 ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,lte_rssi,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,enodeb_id,lte_pci,nr5g_pci,lte_band,nr5g_action_band,ngbr_cell_info,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
 
-# The router reports every field as a string, and sends "" for a reading it
-# doesn't have (e.g. Z5g_SINR while dropped to LTE-only) instead of omitting
-# it. Readings are typed here, once, so everything reading metrics.jsonl can
-# trust it: numeric strings become numbers, "" becomes null.
-ZTE_NORMALISE='with_entries(.value |= (if . == "" then null elif (type == "string" and test("^-?[0-9]+(\\.[0-9]+)?$")) then tonumber else . end))
-  | map_values(if (type == "number" and (. == -32768 or . == -3276.8)) then null else . end)'
-# -32768 (sometimes scaled to -3276.8) is the modem'"'"'s 16-bit "no measurement"
-# sentinel, seen on Z5g_SINR while NR is attached. Left as a number it reads as
-# a real -3276.8 dB reading and wrecks any average or chart it lands in.
-
 # Logs in to the router and prints one JSON object on stdout: the normalised
 # signal fields plus login_ok:true, or {login_ok:false, error:...}. Always
-# prints valid JSON; never exits non-zero.
+# prints valid JSON; never exits non-zero. Typing and sentinel handling live in
+# the session library, so metrics.jsonl and the band scheduler agree on what a
+# missing reading looks like.
 zte_read_signal() {
-  local router_ip=$1 password=$2
-  # Scoped to these curl calls only, so it can't affect the speedtest
-  # binary's own TLS behaviour.
-  local tls_conf=/etc/cloudio-signal-monitor/openssl-legacy.cnf
-  local ua='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-  local -a hdrs=(
-    -H "Accept: application/json, text/javascript, */*; q=0.01"
-    -H "Referer: https://${router_ip}/"
-    -H "X-Requested-With: XMLHttpRequest"
-    -H "User-Agent: ${ua}"
-  )
-
+  local router_ip=$1 password=$2 jar signal
   if [ -z "$password" ]; then
     jq -nc '{login_ok: false, error: "no_password_configured"}'
     return 0
   fi
 
-  local ld
-  ld=$(OPENSSL_CONF="$tls_conf" curl -sk --connect-timeout 8 --max-time 15 "${hdrs[@]}" -b 'stok=""' \
-    "https://${router_ip}/goform/goform_get_cmd_process?isTest=false&cmd=LD&_=$(date +%s%3N)" \
-    | jq -r '.LD // empty' 2>/dev/null)
-  if [ -z "$ld" ]; then
-    jq -nc '{login_ok: false, error: "ld_empty"}'
+  jar=$(mktemp)
+  if ! zte_login "$router_ip" "$password" "$jar"; then
+    rm -f "$jar"
+    jq -nc '{login_ok: false, error: "login_failed"}'
     return 0
   fi
 
-  local hash1 hash2 jar login
-  hash1=$(printf '%s' "$password" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
-  hash2=$(printf '%s' "${hash1}${ld}" | sha256sum | cut -d' ' -f1 | tr 'a-f' 'A-F')
-  jar=$(mktemp)
-
-  login=$(OPENSSL_CONF="$tls_conf" curl -sk -c "$jar" -X POST "https://${router_ip}/goform/goform_set_cmd_process" \
-    "${hdrs[@]}" -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" -b 'stok=""' \
-    --connect-timeout 8 --max-time 15 \
-    --data "isTest=false&goformId=LOGIN&password=${hash2}")
-
-  if printf '%s' "$login" | jq -e '.result == "0"' >/dev/null 2>&1; then
-    local signal
-    signal=$(OPENSSL_CONF="$tls_conf" curl -sk -b "$jar" "${hdrs[@]}" --connect-timeout 8 --max-time 15 \
-      "https://${router_ip}/goform/goform_get_cmd_process?multi_data=1&cmd=${ZTE_FIELDS}")
-    # jq prints nothing (and exits 0) on empty input, so an empty response
-    # has to be caught here or the caller gets "" instead of JSON.
-    printf '%s' "$signal" | jq -ce "${ZTE_NORMALISE} + {login_ok: true}" 2>/dev/null \
-      || jq -nc '{login_ok: false, error: "bad_signal_response"}'
-  else
-    jq -nc '{login_ok: false, error: "login_failed"}'
+  signal=$(zte_status "$router_ip" "$jar" "$ZTE_FIELDS")
+  # The router keeps one session at a time: opening its web UI in a browser
+  # evicts this one, and an evicted session gets every field back blank rather
+  # than an error. One re-login tells that apart from a genuine loss of signal,
+  # which is worth recording as the null it is.
+  if printf '%s' "$signal" | jq -e '.lte_rsrp == null and .wan_ipaddr == null' >/dev/null 2>&1; then
+    zte_login "$router_ip" "$password" "$jar" >/dev/null 2>&1
+    signal=$(zte_status "$router_ip" "$jar" "$ZTE_FIELDS")
   fi
   rm -f "$jar"
+
+  if printf '%s' "$signal" | jq -e 'length > 0' >/dev/null 2>&1; then
+    printf '%s' "$signal" | jq -ce '. + {login_ok: true}'
+  else
+    jq -nc '{login_ok: false, error: "bad_signal_response"}'
+  fi
 }
 
 # Prints one JSON object with the speedtest result, or null on failure.

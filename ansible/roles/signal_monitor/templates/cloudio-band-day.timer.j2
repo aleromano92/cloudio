@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the cloudio daytime band lock ({{ band_day_on_calendar }})
+
+[Timer]
+OnCalendar={{ band_day_on_calendar }}
+Persistent=false
+
+[Install]
+WantedBy=timers.target

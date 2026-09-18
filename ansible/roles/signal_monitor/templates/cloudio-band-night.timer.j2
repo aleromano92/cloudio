@@ -1,0 +1,9 @@
+[Unit]
+Description=Run the cloudio nightly band probe ({{ band_night_on_calendar }})
+
+[Timer]
+OnCalendar={{ band_night_on_calendar }}
+Persistent=false
+
+[Install]
+WantedBy=timers.target

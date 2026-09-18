@@ -1,0 +1,11 @@
+[Unit]
+Description=cloudio nightly band unlock + probe + lock best
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudio-band-night.sh
+# The probe sweep changes band and waits for the modem to re-register once per
+# candidate, so this legitimately runs for minutes.
+TimeoutStartSec={{ band_night_timeout_seconds }}

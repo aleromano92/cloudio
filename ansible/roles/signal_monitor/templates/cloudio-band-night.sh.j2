@@ -1,0 +1,118 @@
+#!/bin/bash
+# Managed by Ansible (signal_monitor role). Runs at {{ band_night_on_calendar }}.
+#
+# The serving mast goes out of service overnight and the modem falls back to a
+# distant one, so the daytime band lock (B{{ band_day_lte }}) is locking it to
+# the wrong thing. This unlocks every band, recovers the modem if it's stuck
+# without service, then measures each candidate band in turn and locks the best
+# one it actually found. cloudio-band-day.sh puts the daytime lock back.
+#
+# A band lock while nothing is reachable would strand the connection until
+# morning, so any unexpected exit restores AUTO.
+set -uo pipefail
+
+. /usr/local/lib/cloudio/zte-session.sh
+# shellcheck disable=SC1091
+[ -r /etc/cloudio-signal-monitor.env ] && . /etc/cloudio-signal-monitor.env
+
+ROUTER_IP="{{ zte_router_ip }}"
+EVENTS="{{ signal_log_dir }}/band-events.jsonl"
+SETTLE={{ band_settle_seconds }}
+CANDIDATES=({{ band_night_candidates | join(' ') }})
+STATUS_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,wan_active_band,cell_id,enodeb_id,wan_ipaddr,ngbr_cell_info,Z5g_rsrp,Z5g_SINR
+
+JAR=$(mktemp)
+RESTORE_AUTO=1
+cleanup() {
+  if [ "$RESTORE_AUTO" = 1 ]; then
+    zte_set_lte_bands "$ROUTER_IP" "$JAR" AUTO >/dev/null 2>&1
+    log_event '{"step":"aborted","action":"restored AUTO"}'
+  fi
+  rm -f "$JAR"
+}
+trap cleanup EXIT
+
+log_event() {
+  jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson e "$1" \
+    '{timestamp: $ts} + $e' >> "$EVENTS"
+}
+
+status_json() {
+  zte_status_wait "$ROUTER_IP" "$JAR" "$STATUS_FIELDS" {{ band_status_tries }} {{ band_status_delay_seconds }}
+}
+
+# Registered and actually carrying traffic, as opposed to camped with no service.
+has_service() {
+  printf '%s' "$1" | jq -e '(.network_type // "") | test("LIMITED_SERVICE") | not' >/dev/null 2>&1 \
+    && printf '%s' "$1" | jq -e '.wan_ipaddr != null' >/dev/null 2>&1
+}
+
+# Weighs reach and cleanliness together: a strong but noisy cell carries no
+# more than a weak clean one. Null readings score below any real measurement.
+score_of() {
+  printf '%s' "$1" | jq -r 'if (.lte_rsrp == null) then -9999 else (.lte_rsrp + 2 * (.lte_snr // -20)) end'
+}
+
+zte_login "$ROUTER_IP" "${ZTE_PASSWORD:-}" "$JAR" || { log_event '{"step":"login","ok":false}'; exit 1; }
+
+before=$(status_json)
+log_event "$(jq -nc --argjson s "$before" '{step: "before", status: $s}')"
+
+if ! has_service "$before"; then
+  log_event '{"step":"recover","action":"reboot","reason":"no service before unlock"}'
+  zte_reboot "$ROUTER_IP" "$JAR" >/dev/null 2>&1
+  sleep {{ band_reboot_wait_seconds }}
+  zte_login "$ROUTER_IP" "${ZTE_PASSWORD:-}" "$JAR" || { log_event '{"step":"login","ok":false,"after":"reboot"}'; exit 1; }
+fi
+
+zte_set_lte_bands "$ROUTER_IP" "$JAR" AUTO >/dev/null \
+  || log_event '{"step":"unlock","radio":"lte","ok":false}'
+zte_set_nr_bands "$ROUTER_IP" "$JAR" AUTO >/dev/null \
+  || log_event '{"step":"unlock","radio":"nr","ok":false}'
+sleep "$SETTLE"
+unlocked=$(status_json)
+log_event "$(jq -nc --argjson s "$unlocked" '{step: "unlocked", status: $s}')"
+
+# What the modem can see with every band allowed is the whole point of
+# unlocking first -- under a lock it only ever reports its own frequency.
+neighbours=$(printf '%s' "$unlocked" | jq -r '.ngbr_cell_info // ""')
+if [ -n "$neighbours" ]; then
+  for entry in ${neighbours//;/ }; do
+    IFS=, read -r earfcn pci rsrq rsrp rssi <<<"$entry"
+    log_event "$(jq -nc --argjson b "$(zte_earfcn_band "${earfcn:-0}")" \
+      --argjson e "${earfcn:-0}" --argjson p "${pci:-0}" --argjson r "${rsrp:-0}" \
+      '{step: "neighbour", band: $b, earfcn: $e, pci: $p, rsrp: $r}')"
+  done
+fi
+
+best_band=""
+best_score=-9999
+for band in "${CANDIDATES[@]}"; do
+  if ! zte_set_lte_bands "$ROUTER_IP" "$JAR" "$band" >/dev/null; then
+    log_event "$(jq -nc --argjson band "$band" '{step: "probe", band: $band, ok: false, reason: "band set rejected"}')"
+    continue
+  fi
+  sleep "$SETTLE"
+  s=$(status_json)
+  score=$(score_of "$s")
+  served=false
+  has_service "$s" && served=true
+  log_event "$(jq -nc --argjson band "$band" --argjson s "$s" --argjson score "$score" --argjson served "$served" \
+    '{step: "probe", band: $band, score: $score, served: $served, status: $s}')"
+  if [ "$served" = true ] && awk "BEGIN{exit !($score > $best_score)}"; then
+    best_score=$score
+    best_band=$band
+  fi
+done
+
+if [ -n "$best_band" ]; then
+  zte_set_lte_bands "$ROUTER_IP" "$JAR" "$best_band" >/dev/null
+  sleep "$SETTLE"
+  log_event "$(jq -nc --argjson band "$best_band" --argjson score "$best_score" --argjson s "$(status_json)" \
+    '{step: "locked", band: $band, score: $score, status: $s}')"
+else
+  zte_set_lte_bands "$ROUTER_IP" "$JAR" AUTO >/dev/null
+  log_event '{"step":"locked","band":null,"action":"left AUTO","reason":"no candidate band had service"}'
+fi
+
+RESTORE_AUTO=0

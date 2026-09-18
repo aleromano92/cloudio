@@ -80,7 +80,7 @@ cloudio/
 │       ├── haos_vm/            # download HAOS image, qm create/import, start
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
 │       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
-│       └── signal_monitor/     # hourly 5G signal + speedtest sampling, daily digest
+│       └── signal_monitor/     # hourly 5G signal + speedtest sampling, nightly band scheduling, daily digest
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
 │   └── .env.example
@@ -184,6 +184,39 @@ to refresh; it fetches `metrics.jsonl` client-side and draws it as plain SVG.
 tail -f /var/log/cloudio-signal/metrics.jsonl              # on pve
 cat /var/log/cloudio-signal/digests/$(date -u +%F).txt
 ```
+
+### Nightly band scheduling
+
+The serving mast here goes out of service overnight — both the LTE anchor and
+the NR carrier — and the modem falls back to a mast ~40 dB weaker, so the
+daytime band lock points at a band that isn't on the air. Two timers fix that
+(`band_schedule_enabled`, needs `zte_router_enabled`):
+
+- **`cloudio-band-night.timer`** (`band_night_on_calendar`, default 00:30):
+  reboots the modem if it has no service at all, unlocks every LTE and NR band,
+  logs the neighbour cells it can now see, measures each band in
+  `band_night_candidates` in turn, and locks the best one that actually carries
+  traffic. Any unexpected exit restores AUTO rather than leaving the link
+  stranded on a dead band until morning.
+- **`cloudio-band-day.timer`** (`band_day_on_calendar`, default 07:13): puts
+  the daytime pair back — LTE `band_day_lte`, NR `band_day_nr`.
+
+Every step appends a JSON line to `band-events.jsonl`, so a night's decision
+can be read back afterwards:
+
+```bash
+jq -c 'select(.step == "probe") | {band, score, served}' \
+  /var/log/cloudio-signal/band-events.jsonl
+systemctl list-timers 'cloudio-*'
+```
+
+Both jobs and the sampler share one session library
+(`files/zte-session.sh`, installed at `/usr/local/lib/cloudio/`), so there is a
+single implementation of the login hash, the `AD` command signature and the
+band-mask encoding. Note the router keeps **one logged-in session at a time**:
+opening its web UI in a browser evicts the scripts' session, and an evicted
+session receives empty strings rather than an auth error — hence the re-login
+built into the library's read and set helpers.
 
 ### Hardware transcoding
 

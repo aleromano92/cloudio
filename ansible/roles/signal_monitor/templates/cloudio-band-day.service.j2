@@ -1,0 +1,9 @@
+[Unit]
+Description=cloudio daytime band lock (LTE B{{ band_day_lte }} + NR n{{ band_day_nr }})
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudio-band-day.sh
+TimeoutStartSec=300

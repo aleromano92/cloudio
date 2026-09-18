@@ -149,6 +149,30 @@ ookla_speedtest_version: "1.2.0"
 zte_router_enabled: true
 zte_router_ip: "192.168.7.1"
 
+# --- Nightly band scheduling ----------------------------------------------
+# The serving mast goes out of service overnight (LTE anchor and NR both), and
+# the modem falls back to a distant one, so the daytime lock points at a band
+# that isn't there. At night every band is unlocked, each candidate is measured
+# in turn, and the best one that actually has service is locked; in the morning
+# the daytime pair goes back. Needs zte_router_enabled.
+band_schedule_enabled: true
+band_night_on_calendar: "*-*-* 00:30:00"
+band_day_on_calendar: "*-*-* 07:13:00"
+# Probed in order at night. B7 is included for completeness but is the least
+# likely to reach a distant mast; B20/B28 are the long-reach ones.
+band_night_candidates: [1, 3, 7, 20, 28]
+band_day_lte: 1
+band_day_nr: 78
+# Seconds to let the modem re-register after each band change. It answers every
+# field blank while re-registering, so the settle is followed by a retry loop --
+# a blank reading would otherwise look like "this band has no coverage".
+band_settle_seconds: 45
+band_status_tries: 6
+band_status_delay_seconds: 10
+band_reboot_wait_seconds: 150
+# Must cover: reboot + one settle+retries per candidate + slack.
+band_night_timeout_seconds: 1800
+
 # Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.
 # a Gmail app password) -- the text digest under signal_log_dir/digests/
 # always gets written regardless of this.
