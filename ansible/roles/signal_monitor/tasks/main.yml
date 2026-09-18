@@ -1,10 +1,10 @@
 ---
-# 30-minute 5G/LTE signal + speedtest sampling, plus a daily digest (file
+# 5G/LTE signal + speedtest sampling, plus a daily digest (file
 # always; email only if signal_email_enabled). See vars.yml for toggles.
 #
 # zte_router_enabled defaults to false in a fresh checkout: the router locks
 # logins out after 5 failed attempts (MAX_LOGIN_COUNT, seen in its own JS),
-# and this runs unattended every {{ signal_monitor_interval_minutes }} minutes
+# and this runs unattended on {{ signal_monitor_on_calendar }}
 # -- don't flip it on before vault_zte_router_password is the real password.
 
 - name: Install jq, msmtp, nodejs (for npx serve)
@@ -153,7 +153,7 @@
 - name: Next steps for signal monitoring
   ansible.builtin.debug:
     msg: >-
-      Sampling every {{ signal_monitor_interval_minutes }}m to
+      Sampling on {{ signal_monitor_on_calendar }} to
       {{ signal_log_dir }}/metrics.jsonl, daily digest at
       {{ signal_log_dir }}/digests/. Dashboard: http://{{ pve_ip }}:{{ signal_web_port }}
       (reload the page to refresh). ZTE polling is

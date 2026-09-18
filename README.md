@@ -80,7 +80,7 @@ cloudio/
 │       ├── haos_vm/            # download HAOS image, qm create/import, start
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
 │       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
-│       └── signal_monitor/     # 30-min 5G signal + speedtest sampling, daily digest
+│       └── signal_monitor/     # hourly 5G signal + speedtest sampling, daily digest
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
 │   └── .env.example
@@ -164,7 +164,7 @@ ansible-playbook site.yml --ask-vault-pass --tags backup
 ### 5G/LTE signal + speedtest monitoring
 
 The `signal_monitor` role samples the ZTE MC801A's signal metrics plus a
-speedtest every `signal_monitor_interval_minutes` (default 30) to
+speedtest on `signal_monitor_on_calendar` (default hourly at :57) to
 `/var/log/cloudio-signal/metrics.jsonl` on `pve`, and writes a daily text
 digest to `signal_log_dir/digests/`. Both toggles below start **off**:
 

@@ -128,11 +128,13 @@ unifi_mongo_dbname: "unifi"
 unifi_mongo_authsource: "admin"
 
 # --- 5G/LTE signal + speedtest monitoring ---------------------------------
-# Samples every signal_monitor_interval_minutes to signal_log_dir/metrics.jsonl,
+# Samples on signal_monitor_on_calendar to signal_log_dir/metrics.jsonl,
 # plus a daily digest under signal_log_dir/digests/ (file always written;
 # email only if signal_email_enabled).
 signal_monitor_enabled: true
-signal_monitor_interval_minutes: 30
+# systemd OnCalendar. Hourly at :57 -- a fixed minute keeps samples on a
+# predictable grid, which matters for comparing the same hour across nights.
+signal_monitor_on_calendar: "*-*-* *:57:00"
 signal_log_dir: "/var/log/cloudio-signal"
 # Static dashboard (files/dashboard.html) served read-only via `npx serve`,
 # reachable at http://<pve_ip>:{{ signal_web_port }} or over Tailscale. No

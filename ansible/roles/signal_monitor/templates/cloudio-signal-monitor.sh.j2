@@ -12,13 +12,22 @@
 #   zte_read_signal {{ zte_router_ip }} "$ZTE_PASSWORD" | jq .
 set -uo pipefail
 
-ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
+# cell_id is the full E-UTRAN cell identity; its leading digits are the
+# enodeb_id (the site/BTS), so a change in enodeb_id means the modem moved to
+# a different mast, not just a different sector. ngbr_cell_info lists the
+# neighbours it could see at that moment, which is what says whether a better
+# cell existed at all.
+ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,lte_rssi,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,enodeb_id,lte_pci,nr5g_pci,lte_band,nr5g_action_band,ngbr_cell_info,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
 
 # The router reports every field as a string, and sends "" for a reading it
 # doesn't have (e.g. Z5g_SINR while dropped to LTE-only) instead of omitting
 # it. Readings are typed here, once, so everything reading metrics.jsonl can
 # trust it: numeric strings become numbers, "" becomes null.
-ZTE_NORMALISE='with_entries(.value |= (if . == "" then null elif (type == "string" and test("^-?[0-9]+(\\.[0-9]+)?$")) then tonumber else . end))'
+ZTE_NORMALISE='with_entries(.value |= (if . == "" then null elif (type == "string" and test("^-?[0-9]+(\\.[0-9]+)?$")) then tonumber else . end))
+  | map_values(if (type == "number" and (. == -32768 or . == -3276.8)) then null else . end)'
+# -32768 (sometimes scaled to -3276.8) is the modem'"'"'s 16-bit "no measurement"
+# sentinel, seen on Z5g_SINR while NR is attached. Left as a number it reads as
+# a real -3276.8 dB reading and wrecks any average or chart it lands in.
 
 # Logs in to the router and prints one JSON object on stdout: the normalised
 # signal fields plus login_ok:true, or {login_ok:false, error:...}. Always

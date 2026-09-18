@@ -1,9 +1,8 @@
 [Unit]
-Description=Run the cloudio signal monitor every {{ signal_monitor_interval_minutes }} minutes
+Description=Run the cloudio signal monitor ({{ signal_monitor_on_calendar }})
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec={{ signal_monitor_interval_minutes }}min
+OnCalendar={{ signal_monitor_on_calendar }}
 Persistent=true
 RandomizedDelaySec=30
 
