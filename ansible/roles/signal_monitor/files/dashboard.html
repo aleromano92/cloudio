@@ -126,42 +126,50 @@
     // The one place a metric's meaning lives: where it's read from, its unit,
     // colour, explanation and quality bands. Stat tiles, chart hints, chart
     // threshold lines and the table all derive from this.
-    const TEMP_BANDS = { above: { at: 75, word: "caution (est.)", tone: "bad" } };
+    //
+    // bands: `good` is where a reading turns fully green, `bad` where it turns
+    // fully red; in between it blends through amber. Direction follows from the
+    // two numbers, so lower-is-better metrics (ping, temperature) need no flag.
+    const TEMP_BANDS = { good: { at: 50, word: "cool" }, between: "warm", bad: { at: 75, word: "caution (est.)" } };
 
     const METRICS = {
       downloadMbps: {
         label: "Download", unit: "Mbps", color: "#4fc3a1", legend: "download Mbps",
         read: r => r.speedtest?.download_mbps,
         tip: "Download throughput to the nearest Ookla server. Matters for file transfers, streaming quality, and app/OS updates.",
+        bands: { good: { at: 450, word: "fast" }, between: "fine", bad: { at: 70, word: "slow" } },
       },
       uploadMbps: {
         label: "Upload", unit: "Mbps", color: "#c78a3d", legend: "upload Mbps",
         read: r => r.speedtest?.upload_mbps,
         tip: "Upload throughput to the same server. Matters for video calls, cloud backups, and anything that pushes data out &mdash; e.g. the Anran cameras' remote-view stream.",
+        bands: { good: { at: 50, word: "fast" }, between: "fine", bad: { at: 5, word: "slow" } },
       },
       pingMs: {
         label: "Ping", unit: "ms",
         read: r => r.speedtest?.ping_ms,
         tip: "Round-trip time to the test server. Lower means snappier calls, gaming, and remote access (SSH/Proxmox UI over Tailscale).",
+        bands: { good: { at: 15, word: "snappy" }, between: "fine", bad: { at: 40, word: "laggy" } },
       },
       jitterMs: {
         label: "Jitter", unit: "ms",
         read: r => r.speedtest?.jitter_ms,
         tip: "How much ping varies between packets, not just its average. High jitter causes choppy audio/video even when average ping looks fine &mdash; often a better predictor of a \"laggy\" call than ping itself.",
+        bands: { good: { at: 3, word: "steady" }, between: "fine", bad: { at: 30, word: "choppy" } },
       },
       nrRsrp: {
         label: "5G strength", unit: "dBm", color: "#4fc3a1", legend: "signal strength",
         read: r => r.zte?.Z5g_rsrp,
         tip: "How strong the 5G signal from the mast is, in dBm. Technically RSRP (reference signal received power), shown as NR RSRP in the router's own pages.",
         blurb: "Closer to 0 is stronger.",
-        bands: { above: { at: -80, word: "strong" }, between: "workable", below: { at: -100, word: "weak" } },
+        bands: { good: { at: -80, word: "strong" }, between: "workable", bad: { at: -110, word: "weak" } },
       },
       nrSinr: {
         label: "5G quality", unit: "dB", color: "#c78a3d", legend: "signal quality",
         read: r => r.zte?.Z5g_SINR,
         tip: "How clean the 5G signal is, not just how strong, in dB. Technically SINR (signal to interference plus noise ratio), shown as NR SINR in the router's own pages.",
         blurb: "Higher is cleaner &mdash; predicts real achievable speed better than strength alone.",
-        bands: { above: { at: 13, word: "good" }, between: "fair", below: { at: 0, word: "poor" } },
+        bands: { good: { at: 13, word: "good" }, between: "fair", bad: { at: 0, word: "poor" } },
       },
       mdmTempC: {
         label: "4G modem", unit: "°C", color: "#4fc3a1", legend: "4G modem",
@@ -207,28 +215,45 @@
     // a flat reading auto-scaled to its own range draws a degenerate axis.
     // Different units get separate charts, never a dual axis.
     const CHARTS = [
-      { title: "Throughput", metrics: ["downloadMbps", "uploadMbps"], range: { min: 0, max: 1000 } },
+      // Upload's lines (5 and 50) would sit within a few pixels of 0 on this axis
+      // and bury download's; its thresholds still colour its tile and hint.
+      { title: "Throughput", metrics: ["downloadMbps", "uploadMbps"], range: { min: 0, max: 1000 }, lines: ["downloadMbps"] },
       { title: "5G signal strength (dBm)", metrics: ["nrRsrp"], range: { min: -120, max: -60 } },
       { title: "5G signal quality (dB)", metrics: ["nrSinr"], range: { min: -10, max: 30 } },
       {
         title: "Modem temperature (&deg;C)", metrics: ["mdmTempC", "modem5gTempC"], range: { min: 0, max: 100 },
-        note: "ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.",
+        note: "ZTE doesn't publish an exact shutdown threshold; the red line marks a general caution zone for cellular PA hardware, not a documented cutoff.",
       },
     ];
 
+    const higherIsBetter = b => b.good.at > b.bad.at;
+
     function bandSentence(metric) {
       const b = metric.bands;
-      if (!b || !b.above || !b.below) return "";
-      const hi = Format.signed(b.above.at), lo = Format.signed(b.below.at);
-      return `${hi} or better: ${b.above.word} &middot; ${lo} to ${hi}: ${b.between} &middot; below ${lo}: ${b.below.word}.`;
+      if (!b) return "";
+      const good = Format.signed(b.good.at), bad = Format.signed(b.bad.at);
+      const [up, down] = higherIsBetter(b) ? ["or above", "or below"] : ["or below", "or above"];
+      return `${good} ${up}: ${b.good.word} &middot; between: ${b.between} &middot; ${bad} ${down}: ${b.bad.word}.`;
     }
 
     function bandLines(metric) {
-      const b = metric.bands || {};
+      const b = metric.bands;
+      if (!b) return [];
+      const [goodArrow, badArrow] = higherIsBetter(b) ? ["↑", "↓"] : ["↓", "↑"];
       return [
-        b.above && { at: b.above.at, label: `${b.above.word} ↑`, tone: b.above.tone || "good" },
-        b.below && { at: b.below.at, label: `${b.below.word} ↓`, tone: b.below.tone || "bad" },
-      ].filter(Boolean);
+        { at: b.good.at, label: `${b.good.word} ${goodArrow}`, tone: "good" },
+        { at: b.bad.at, label: `${b.bad.word} ${badArrow}`, tone: "bad" },
+      ];
+    }
+
+    // Red at `bad`, amber halfway, green at `good`, clamped beyond either end.
+    const GRADIENT = [[177, 84, 74], [217, 164, 65], [95, 168, 143]];
+    function bandColor(metric, value) {
+      const b = metric.bands;
+      if (!b || value === null) return null;
+      const t = Math.max(0, Math.min(1, (value - b.bad.at) / (b.good.at - b.bad.at)));
+      const [from, to, f] = t < 0.5 ? [GRADIENT[0], GRADIENT[1], t * 2] : [GRADIENT[1], GRADIENT[2], (t - 0.5) * 2];
+      return `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * f)).join(",")})`;
     }
 
     // --- Chart module ------------------------------------------------------------
@@ -537,7 +562,7 @@
         const tip = [metric.tip, bandSentence(metric)].filter(Boolean).join(" ");
         return `<div class="stat">
           <div class="label">${metric.label}<span class="info" tabindex="0">i<span class="tip">${tip}</span></span></div>
-          <div class="value ${value === null ? "dim" : ""}">${value === null ? "—" : `${Format.number(value)} ${metric.unit}`}</div>
+          <div class="value ${value === null ? "dim" : ""}" ${bandColor(metric, value) ? `style="color:${bandColor(metric, value)}"` : ""}>${value === null ? "—" : `${Format.number(value)} ${metric.unit}`}</div>
         </div>`;
       }).join("");
     }
@@ -562,7 +587,10 @@
 
       for (const chart of CHARTS) {
         const metrics = chart.metrics.map(key => METRICS[key]);
-        const hints = [...new Set([chart.note, ...metrics.map(m => [m.blurb, bandSentence(m)].filter(Boolean).join(" "))].filter(Boolean))];
+        // Metrics sharing a chart but not thresholds (download/upload) get named,
+        // or two bare "or above: fast" sentences can't be told apart.
+        const distinct = new Set(metrics.map(bandSentence).filter(Boolean)).size > 1;
+        const hints = [...new Set([chart.note, ...metrics.map(m => [m.blurb, bandSentence(m) && (distinct ? `${m.label}: ` : "") + bandSentence(m)].filter(Boolean).join(" "))].filter(Boolean))];
 
         const block = document.createElement("div");
         block.className = "chart";
@@ -576,7 +604,7 @@
           times,
           series: chart.metrics.map(key => ({ ...METRICS[key], values: samples.map(s => s[key]) })),
           range: chart.range,
-          bands: metrics.flatMap(bandLines),
+          bands: (chart.lines || chart.metrics).map(key => METRICS[key]).flatMap(bandLines),
         });
       }
     }
