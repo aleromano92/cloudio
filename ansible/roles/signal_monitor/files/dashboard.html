@@ -133,17 +133,24 @@
     // bands: `good` is where a reading turns fully green, `bad` where it turns
     // fully red; in between it blends through amber. Direction follows from the
     // two numbers, so lower-is-better metrics (ping, temperature) need no flag.
+    // Series colours are deliberately neutral: green, amber and red already mean
+    // good/bad on this page (tiles, threshold lines), so a line drawn in one of
+    // them reads as a verdict. Blue and grey carry identity only; checked with
+    // the dataviz validator on the #1a1a1a chart surface (normal-vision dE 26.8,
+    // colour-blind dE 23.4 between them). A chart's first series is blue.
+    const SERIES = { first: "#3987e5", second: "#c9c9c9" };
+
     const TEMP_BANDS = { good: { at: 50, word: "cool" }, between: "warm", bad: { at: 75, word: "caution (est.)" } };
 
     const METRICS = {
       downloadMbps: {
-        label: "Download", unit: "Mbps", color: "#4fc3a1", legend: "download Mbps",
+        label: "Download", unit: "Mbps", color: SERIES.first, legend: "download Mbps",
         read: r => r.speedtest?.download_mbps,
         tip: "Download throughput to the nearest Ookla server. Matters for file transfers, streaming quality, and app/OS updates.",
         bands: { good: { at: 450, word: "fast" }, between: "fine", bad: { at: 70, word: "slow" } },
       },
       uploadMbps: {
-        label: "Upload", unit: "Mbps", color: "#c78a3d", legend: "upload Mbps",
+        label: "Upload", unit: "Mbps", color: SERIES.second, legend: "upload Mbps",
         read: r => r.speedtest?.upload_mbps,
         tip: "Upload throughput to the same server. Matters for video calls, cloud backups, and anything that pushes data out &mdash; e.g. the Anran cameras' remote-view stream.",
         bands: { good: { at: 50, word: "fast" }, between: "fine", bad: { at: 5, word: "slow" } },
@@ -161,27 +168,27 @@
         bands: { good: { at: 3, word: "steady" }, between: "fine", bad: { at: 30, word: "choppy" } },
       },
       nrRsrp: {
-        label: "5G strength", unit: "dBm", color: "#4fc3a1", legend: "signal strength",
+        label: "5G strength", unit: "dBm", color: SERIES.first, legend: "signal strength",
         read: r => r.zte?.Z5g_rsrp,
         tip: "How strong the 5G signal from the mast is, in dBm. Technically RSRP (reference signal received power), shown as NR RSRP in the router's own pages.",
         blurb: "Closer to 0 is stronger.",
         bands: { good: { at: -80, word: "strong" }, between: "workable", bad: { at: -110, word: "weak" } },
       },
       nrSinr: {
-        label: "5G quality", unit: "dB", color: "#c78a3d", legend: "signal quality",
+        label: "5G quality", unit: "dB", color: SERIES.first, legend: "signal quality",
         read: r => r.zte?.Z5g_SINR,
         tip: "How clean the 5G signal is, not just how strong, in dB. Technically SINR (signal to interference plus noise ratio), shown as NR SINR in the router's own pages.",
         blurb: "Higher is cleaner &mdash; predicts real achievable speed better than strength alone.",
         bands: { good: { at: 13, word: "good" }, between: "fair", bad: { at: 0, word: "poor" } },
       },
       mdmTempC: {
-        label: "4G modem", unit: "°C", color: "#4fc3a1", legend: "4G modem",
+        label: "4G modem", unit: "°C", color: SERIES.first, legend: "4G modem",
         read: r => r.zte?.pm_sensor_mdm,
         tip: "4G modem chip temperature, in &deg;C, as reported by the router itself. Tracked to catch a thermal shutdown before it takes the connection down.",
         bands: TEMP_BANDS,
       },
       modem5gTempC: {
-        label: "5G modem", unit: "°C", color: "#c78a3d", legend: "5G modem",
+        label: "5G modem", unit: "°C", color: SERIES.second, legend: "5G modem",
         read: r => r.zte?.pm_modem_5g,
         tip: "5G modem chip temperature, in &deg;C. Runs separately from the 4G modem; either one overheating can drop the connection.",
         bands: TEMP_BANDS,
