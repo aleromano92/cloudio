@@ -44,8 +44,8 @@ else
   jq -r --arg today "$TODAY" '
     "cloudio signal digest — last 24h (" + $today + ")",
     "samples: \(.samples)  (zte login failures: \(.zte_login_failures), speedtest failures: \(.speedtest_failures))",
-    "LTE RSRP avg: \(.lte_rsrp_avg // "n/a") dBm",
-    "NR  SINR avg: \(.nr_sinr_avg // "n/a") dB",
+    "4G signal strength avg: \(.lte_rsrp_avg // "n/a") dBm",
+    "5G signal quality avg:  \(.nr_sinr_avg // "n/a") dB",
     "4G modem temp: avg \(.mdm_temp_avg // "n/a")C, max \(.mdm_temp_max // "n/a")C",
     "5G modem temp: avg \(.modem5g_temp_avg // "n/a")C, max \(.modem5g_temp_max // "n/a")C",
     "download avg: \(.download_mbps_avg // "n/a") Mbps",

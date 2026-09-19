@@ -161,7 +161,7 @@ ansible-playbook site.yml --ask-vault-pass --tags storage,media
 ansible-playbook site.yml --ask-vault-pass --tags backup
 ```
 
-### 5G/LTE signal + speedtest monitoring
+### 5G/4G signal + speedtest monitoring
 
 The `signal_monitor` role samples the ZTE MC801A's signal metrics plus a
 speedtest on `signal_monitor_on_calendar` (default hourly at :57) to
@@ -197,7 +197,7 @@ nights before.
 Three pieces, all needing `zte_router_enabled`:
 
 - **`cloudio-band-day.timer`** (`band_day_on_calendar`, default 07:13) locks
-  LTE `band_day_lte` and NR `band_day_nr`. `band_day_lte` is a list: several
+  4G `band_day_lte` and 5G `band_day_nr`. `band_day_lte` is a list: several
   bands in one lock let the modem aggregate them.
 - **`cloudio-band-night.timer`** (`band_night_on_calendar`, default 00:30,
   toggled by `band_night_enabled`) reboots the modem if it has no service at
@@ -208,7 +208,7 @@ Three pieces, all needing `zte_router_enabled`:
   `pve` every 10s. "Down" means all of them failed 3 times running. It measures
   traffic, not the router's own report, because the router reports itself
   attached with a WAN IP while passing nothing. On an outage it climbs a ladder
-  and stops at the first rung that brings traffic back: **LTE AUTO** (the modem
+  and stops at the first rung that brings traffic back: **4G AUTO** (the modem
   measures every band at once and picks) → **lock `watchdog_known_good_lte`** →
   **reboot the modem**, at most once per `watchdog_reboot_cooldown_minutes`.
   Whatever fixed it stays until the next scheduled band change, so recovering

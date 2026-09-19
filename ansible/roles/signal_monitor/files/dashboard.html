@@ -150,17 +150,17 @@
         tip: "How much ping varies between packets, not just its average. High jitter causes choppy audio/video even when average ping looks fine &mdash; often a better predictor of a \"laggy\" call than ping itself.",
       },
       nrRsrp: {
-        label: "NR RSRP", unit: "dBm", color: "#4fc3a1", legend: "signal power",
+        label: "5G strength", unit: "dBm", color: "#4fc3a1", legend: "signal strength",
         read: r => r.zte?.Z5g_rsrp,
-        tip: "5G NR reference signal power from the tower, in dBm.",
+        tip: "How strong the 5G signal from the mast is, in dBm. Technically RSRP (reference signal received power), shown as NR RSRP in the router's own pages.",
         blurb: "Closer to 0 is stronger.",
         bands: { above: { at: -80, word: "strong" }, between: "workable", below: { at: -100, word: "weak" } },
       },
       nrSinr: {
-        label: "NR SINR", unit: "dB", color: "#c78a3d", legend: "signal cleanliness",
+        label: "5G quality", unit: "dB", color: "#c78a3d", legend: "signal quality",
         read: r => r.zte?.Z5g_SINR,
-        tip: "Signal-to-interference-plus-noise ratio, in dB &mdash; how clean the signal is, not just how strong.",
-        blurb: "Higher is cleaner &mdash; predicts real achievable speed better than RSRP alone.",
+        tip: "How clean the 5G signal is, not just how strong, in dB. Technically SINR (signal to interference plus noise ratio), shown as NR SINR in the router's own pages.",
+        blurb: "Higher is cleaner &mdash; predicts real achievable speed better than strength alone.",
         bands: { above: { at: 13, word: "good" }, between: "fair", below: { at: 0, word: "poor" } },
       },
       mdmTempC: {
@@ -184,14 +184,14 @@
     // the BTS, so the two columns together show sector moves vs mast moves.
     const TEXT_COLUMNS = [
       { key: "mode", label: "Mode", read: r => r.zte?.network_type },
-      { key: "bts", label: "BTS", read: r => r.zte?.enodeb_id },
-      { key: "cell", label: "Cell", read: r => r.zte?.cell_id },
-      { key: "band", label: "Band", read: r => r.zte?.lte_band },
-      { key: "lock", label: "LTE lock", read: r => lteLock(r.zte?.lte_band_lock) },
+      { key: "bts", label: "Mast", read: r => r.zte?.enodeb_id },
+      { key: "cell", label: "4G cell", read: r => r.zte?.cell_id },
+      { key: "band", label: "4G band", read: r => r.zte?.lte_band },
+      { key: "lock", label: "4G band lock", read: r => lteLock(r.zte?.lte_band_lock) },
       // Two n78 cells serve this house, ~26 dB apart: 1f at -71 dBm, 15 at -97.
-      // Which one the modem holds moves throughput more than the LTE lock does,
-      // so a fair comparison between locks is within one NR cell.
-      { key: "nrCell", label: "NR cell", read: r => r.zte?.nr5g_pci },
+      // Which one the modem holds moves throughput more than the 4G lock does,
+      // so a fair comparison between locks is within one 5G cell.
+      { key: "nrCell", label: "5G cell", read: r => r.zte?.nr5g_pci },
     ];
 
     // The router reports the LTE lock as a bitmask (band N is bit N-1).
@@ -208,10 +208,10 @@
     // Different units get separate charts, never a dual axis.
     const CHARTS = [
       { title: "Throughput", metrics: ["downloadMbps", "uploadMbps"], range: { min: 0, max: 1000 } },
-      { title: "NR RSRP (dBm)", metrics: ["nrRsrp"], range: { min: -120, max: -60 } },
-      { title: "NR SINR (dB)", metrics: ["nrSinr"], range: { min: -10, max: 30 } },
+      { title: "5G signal strength (dBm)", metrics: ["nrRsrp"], range: { min: -120, max: -60 } },
+      { title: "5G signal quality (dB)", metrics: ["nrSinr"], range: { min: -10, max: 30 } },
       {
-        title: "Modem Temperature (&deg;C)", metrics: ["mdmTempC", "modem5gTempC"], range: { min: 0, max: 100 },
+        title: "Modem temperature (&deg;C)", metrics: ["mdmTempC", "modem5gTempC"], range: { min: 0, max: 100 },
         note: "ZTE doesn't publish an exact shutdown threshold; the line marks a general caution zone for cellular PA hardware, not a documented cutoff.",
       },
     ];
@@ -417,7 +417,7 @@
     // fail, a "step" per rung of the recovery ladder, an "up" when traffic flows
     // again. One outage is everything from a "down" to the "up" that closes it.
     const FIXED_BY = {
-      "auto": "LTE bands unlocked (AUTO)",
+      "auto": "4G bands unlocked (AUTO)",
       "known-good": "known-good band locked",
       "reboot": "modem reboot",
       "self": "recovered on its own",
