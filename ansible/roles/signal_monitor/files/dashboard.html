@@ -187,7 +187,21 @@
       { key: "bts", label: "BTS", read: r => r.zte?.enodeb_id },
       { key: "cell", label: "Cell", read: r => r.zte?.cell_id },
       { key: "band", label: "Band", read: r => r.zte?.lte_band },
+      { key: "lock", label: "LTE lock", read: r => lteLock(r.zte?.lte_band_lock) },
+      // Two n78 cells serve this house, ~26 dB apart: 1f at -71 dBm, 15 at -97.
+      // Which one the modem holds moves throughput more than the LTE lock does,
+      // so a fair comparison between locks is within one NR cell.
+      { key: "nrCell", label: "NR cell", read: r => r.zte?.nr5g_pci },
     ];
+
+    // The router reports the LTE lock as a bitmask (band N is bit N-1).
+    function lteLock(mask) {
+      if (!mask) return null;
+      const bits = BigInt(mask);
+      const bands = [];
+      for (let b = 1n; b <= 64n; b++) if (bits & (1n << (b - 1n))) bands.push(`B${b}`);
+      return bands.length > 8 ? "AUTO" : bands.join("+");
+    }
 
     // Fixed, domain-meaningful axes: auto-scaling misrepresents proportion, and
     // a flat reading auto-scaled to its own range draws a degenerate axis.
