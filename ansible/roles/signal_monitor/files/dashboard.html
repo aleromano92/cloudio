@@ -44,10 +44,13 @@
   .info { position: relative; display: inline-block; width: 12px; height: 12px; margin-left: 4px;
     border: 1px solid #666; border-radius: 50%; color: #888; font-size: 9px; line-height: 11px;
     text-align: center; text-transform: none; cursor: help; }
-  .info .tip { display: none; position: absolute; bottom: 130%; left: 0; width: 230px;
+  /* Opens downwards: these icons sit at the top of the page, so opening upwards
+     runs the tip off the top of the window. */
+  .info .tip { display: none; position: absolute; top: 130%; left: 0; width: 230px; text-align: left;
     background: #222; border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
     font-size: 11.5px; line-height: 1.45; color: #ccc; text-transform: none; font-weight: 400;
     z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.4); }
+  .info .tip.flip { left: auto; right: 0; }
   .info:hover .tip, .info:focus .tip { display: block; }
 
   .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
@@ -608,6 +611,16 @@
         });
       }
     }
+
+    // A tip on the rightmost tiles would run off the window; anchor it to the
+    // icon's right edge instead. Measured on open, since the layout reflows.
+    document.addEventListener("mouseover", e => {
+      const icon = e.target.closest?.(".info");
+      if (!icon) return;
+      const tip = icon.querySelector(".tip");
+      tip.classList.remove("flip");
+      if (tip.getBoundingClientRect().right > window.innerWidth - 8) tip.classList.add("flip");
+    });
 
     document.querySelectorAll(".tab-btn").forEach(btn => {
       btn.addEventListener("click", () => {
