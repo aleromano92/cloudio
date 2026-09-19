@@ -64,6 +64,20 @@
   th { color: #888; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em; }
   tbody tr:hover td { background: #202020; }
   td.dim { color: #555; }
+
+  .outages { margin-bottom: 22px; }
+  .outages h2 { font-size: 13px; color: #aaa; margin: 0 0 6px; }
+  .outage-strip { position: relative; height: 22px; background: #1a1a1a; border: 1px solid #2a2a2a;
+    border-radius: 4px; overflow: hidden; }
+  .outage-strip .day { position: absolute; top: 0; bottom: 0; border-left: 1px solid #262626;
+    font-size: 9px; color: #555; padding: 2px 4px; }
+  .outage-strip .seg { position: absolute; top: 3px; bottom: 3px; min-width: 3px; border-radius: 2px;
+    background: #b1544a; }
+  .outage-strip .seg.ongoing { background: #d9913a; }
+  .outage-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; color: #bbb; }
+  .outage-list li { padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .outage-list .why { color: #777; }
+  .outage-summary { font-size: 11px; color: #777; margin-top: 6px; }
 </style>
 </head>
 <body>
@@ -77,6 +91,8 @@
     <button id="weekNext" type="button" title="Next week">&rsaquo;</button>
     <span class="week-meta" id="weekMeta"></span>
   </div>
+
+  <div class="outages" id="outages"></div>
 
   <div class="tabs">
     <button class="tab-btn active" data-tab="charts" type="button">Charts</button>
@@ -382,6 +398,96 @@
 
     // Weeks run Monday to Sunday in the viewer's own timezone, since that's
     // how the nights being compared are experienced.
+    // --- Watchdog outages --------------------------------------------------------
+    // watchdog-events.jsonl is written by cloudio-watchdog: a "down" when pings
+    // fail, a "step" per rung of the recovery ladder, an "up" when traffic flows
+    // again. One outage is everything from a "down" to the "up" that closes it.
+    const FIXED_BY = {
+      "auto": "LTE bands unlocked (AUTO)",
+      "known-good": "known-good band locked",
+      "reboot": "modem reboot",
+      "self": "recovered on its own",
+    };
+
+    async function fetchEvents() {
+      const res = await fetch("watchdog-events.jsonl", { cache: "no-store" }).catch(() => null);
+      return res && res.ok ? parseJsonl(await res.text()) : [];
+    }
+
+    function toOutages(events) {
+      const outages = [];
+      let open = null;
+      for (const e of events) {
+        if (e.event === "down") open = { start: e.since, router: e.router || {} };
+        else if (e.event === "up") {
+          outages.push({ router: {}, ...open, start: e.down_since, seconds: e.down_seconds, fixedBy: e.fixed_by });
+          open = null;
+        }
+      }
+      if (open) outages.push({ ...open, seconds: (Date.now() - new Date(open.start).getTime()) / 1000, ongoing: true });
+      return outages;
+    }
+
+    function duration(seconds) {
+      const s = Math.round(seconds);
+      if (s < 60) return `${s}s`;
+      if (s < 3600) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+      return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+    }
+
+    // What the router said while the link was down: that's what separates "B1
+    // switched off" from "modem wedged" when reading these back.
+    function routerSummary(r) {
+      const parts = [r.network_type, r.wan_active_band, r.lte_rsrp != null ? `${r.lte_rsrp} dBm` : null,
+        r.enodeb_id ? `mast ${r.enodeb_id}` : null].filter(Boolean);
+      return parts.length ? `router: ${parts.join(", ")}` : "";
+    }
+
+    let watchdogSince = null;
+    let outages = [];
+
+    function renderOutages(weekStartMs) {
+      const el = document.getElementById("outages");
+      const span = 7 * 86400000;
+      const weekEnd = weekStartMs + span;
+      const inWeek = outages.filter(o => {
+        const t = new Date(o.start).getTime();
+        return t >= weekStartMs && t < weekEnd;
+      });
+
+      const days = [...Array(7).keys()].map(i => {
+        const d = new Date(weekStartMs + i * 86400000);
+        return `<span class="day" style="left:${(i / 7) * 100}%">${d.toLocaleDateString(undefined, { weekday: "short" })}</span>`;
+      }).join("");
+      const segs = inWeek.map(o => {
+        const t = new Date(o.start).getTime();
+        const left = ((t - weekStartMs) / span) * 100;
+        const width = Math.min((o.seconds * 1000 / span) * 100, 100 - left);
+        const label = `${new Date(o.start).toLocaleString()} · ${duration(o.seconds)} · ${o.ongoing ? "ongoing" : FIXED_BY[o.fixedBy] || o.fixedBy}`;
+        return `<span class="seg ${o.ongoing ? "ongoing" : ""}" style="left:${left}%;width:${width}%" title="${label}"></span>`;
+      }).join("");
+
+      let summary;
+      if (!watchdogSince || watchdogSince.getTime() >= weekEnd) summary = "watchdog wasn't running yet this week";
+      else if (!inWeek.length) summary = "no outages this week";
+      else {
+        const total = inWeek.reduce((a, o) => a + o.seconds, 0);
+        summary = `${inWeek.length} outage${inWeek.length > 1 ? "s" : ""}, ${duration(total)} down in total`;
+      }
+      if (watchdogSince && watchdogSince.getTime() > weekStartMs && watchdogSince.getTime() < weekEnd)
+        summary += ` · watchdog running since ${watchdogSince.toLocaleString()}`;
+
+      const list = inWeek.slice().reverse().map(o =>
+        `<li>${new Date(o.start).toLocaleString()} · <strong>${duration(o.seconds)}</strong> · ${o.ongoing ? "still down" : FIXED_BY[o.fixedBy] || o.fixedBy}
+          <span class="why">${routerSummary(o.router) ? "· " + routerSummary(o.router) : ""}</span></li>`
+      ).join("");
+
+      el.innerHTML = `<h2>Outages</h2>
+        <div class="outage-strip">${days}${segs}</div>
+        <div class="outage-summary">${summary}</div>
+        ${list ? `<ul class="outage-list">${list}</ul>` : ""}`;
+    }
+
     function weekStart(timestamp) {
       const d = new Date(timestamp);
       d.setHours(0, 0, 0, 0);
@@ -484,6 +590,7 @@
       document.getElementById("weekPrev").disabled = selected === 0;
       document.getElementById("weekNext").disabled = selected === weeks.length - 1;
 
+      renderOutages(week.start);
       renderStats(week.samples);
       renderTable(week.samples);
       renderCharts(week.samples);
@@ -493,7 +600,10 @@
     document.getElementById("weekNext").addEventListener("click", () => showWeek(selected + 1));
 
     async function load() {
-      const samples = toSamples(await fetchAllRows());
+      const [samples, events] = await Promise.all([fetchAllRows().then(toSamples), fetchEvents()]);
+      const firstStart = events.find(e => e.event === "start");
+      watchdogSince = firstStart ? new Date(firstStart.timestamp) : null;
+      outages = toOutages(events);
       const latest = samples[samples.length - 1];
 
       document.getElementById("sub").textContent =

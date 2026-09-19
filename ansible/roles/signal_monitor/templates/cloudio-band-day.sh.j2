@@ -2,8 +2,8 @@
 # Managed by Ansible (signal_monitor role). Runs at {{ band_day_on_calendar }}.
 #
 # Puts the daytime lock back after cloudio-band-night.sh has been free to roam:
-# LTE B{{ band_day_lte }} and NR n{{ band_day_nr }}, the combination measured
-# best here while the usual mast is in service.
+# LTE B{{ band_day_lte | join('+B') }} and NR n{{ band_day_nr }}, the combination chosen
+# for daytime. Several LTE bands in one lock let the modem aggregate them.
 set -uo pipefail
 
 . /usr/local/lib/cloudio/zte-session.sh
@@ -22,7 +22,7 @@ log_event() {
 
 zte_login "$ROUTER_IP" "${ZTE_PASSWORD:-}" "$JAR" || { log_event '{"step":"login","ok":false,"job":"day"}'; exit 1; }
 
-zte_set_lte_bands "$ROUTER_IP" "$JAR" {{ band_day_lte }} >/dev/null
+zte_set_lte_bands "$ROUTER_IP" "$JAR" {{ band_day_lte | join(" ") }} >/dev/null
 zte_set_nr_bands "$ROUTER_IP" "$JAR" "{{ band_day_nr }}" >/dev/null
 sleep {{ band_settle_seconds }}
 
@@ -30,4 +30,4 @@ status=$(zte_status_wait "$ROUTER_IP" "$JAR" \
   "network_type,wan_active_band,nr5g_action_band,lte_rsrp,lte_snr,Z5g_rsrp,Z5g_SINR,cell_id,enodeb_id,wan_ipaddr" \
   {{ band_status_tries }} {{ band_status_delay_seconds }})
 log_event "$(jq -nc --argjson s "$status" \
-  '{step: "day-lock", lte_band: {{ band_day_lte }}, nr_band: {{ band_day_nr }}, status: $s}')"
+  '{step: "day-lock", lte_bands: {{ band_day_lte | to_json }}, nr_band: {{ band_day_nr }}, status: $s}')"

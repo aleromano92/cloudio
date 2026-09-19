@@ -1,0 +1,15 @@
+[Unit]
+Description=cloudio uplink watchdog (ping, then AUTO -> known-good band -> reboot)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/cloudio-watchdog.sh
+# It is the thing that recovers the link, so it must outlive its own bugs.
+Restart=always
+RestartSec=10
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

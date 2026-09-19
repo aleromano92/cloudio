@@ -156,12 +156,19 @@ zte_router_ip: "192.168.7.1"
 # in turn, and the best one that actually has service is locked; in the morning
 # the daytime pair goes back. Needs zte_router_enabled.
 band_schedule_enabled: true
+# The night sweep. Paused for the aggregation experiment below: with B3/B20 in
+# the day set, losing B1 at midnight should cost one carrier, not the link.
+band_night_enabled: false
 band_night_on_calendar: "*-*-* 00:30:00"
 band_day_on_calendar: "*-*-* 07:13:00"
 # Probed in order at night. B7 is included for completeness but is the least
 # likely to reach a distant mast; B20/B28 are the long-reach ones.
 band_night_candidates: [1, 3, 7, 20, 28]
-band_day_lte: 1
+# Experiment from 2026-09-19, 3 days + 3 nights: B1+B3+B20 are the three bands
+# seen on the home mast (7b1e2), locked together so the modem can aggregate
+# them. Before that the day lock was B1 alone (~330 down / 42 up). Revert to
+# [1] and band_night_enabled: true if it's slower by day.
+band_day_lte: [1, 3, 20]
 band_day_nr: 78
 # Seconds to let the modem re-register after each band change. It answers every
 # field blank while re-registering, so the settle is followed by a retry loop --
@@ -172,6 +179,18 @@ band_status_delay_seconds: 10
 band_reboot_wait_seconds: 150
 # Must cover: reboot + one settle+retries per candidate + slack.
 band_night_timeout_seconds: 1800
+
+# --- Uplink watchdog ------------------------------------------------------
+# Pings from pve decide "down" (the router reports itself attached while
+# passing nothing); then AUTO -> known-good LTE band -> modem reboot, stopping
+# at the first that brings traffic back. Needs zte_router_enabled.
+watchdog_enabled: true
+watchdog_targets: ["1.1.1.1", "8.8.8.8"]   # down = all of them fail
+watchdog_interval_seconds: 10
+watchdog_fail_threshold: 3                  # ~30s to declare an outage
+watchdog_step_wait_seconds: 45              # per rung, before trying the next
+watchdog_known_good_lte: [20]               # the band proven good overnight
+watchdog_reboot_cooldown_minutes: 45
 
 # Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.
 # a Gmail app password) -- the text digest under signal_log_dir/digests/

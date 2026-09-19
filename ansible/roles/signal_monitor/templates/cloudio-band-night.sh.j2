@@ -1,9 +1,9 @@
 #!/bin/bash
 # Managed by Ansible (signal_monitor role). Runs at {{ band_night_on_calendar }}.
 #
-# The serving mast goes out of service overnight and the modem falls back to a
-# distant one, so the daytime band lock (B{{ band_day_lte }}) is locking it to
-# the wrong thing. This unlocks every band, recovers the modem if it's stuck
+# The home mast (7b1e2) switches its B1 carrier off overnight while B3/B20 stay
+# up, so a daytime lock that leans on B1 pushes the modem onto a distant mast at
+# -124 dBm. This unlocks every band, recovers the modem if it's stuck
 # without service, then measures each candidate band in turn and locks the best
 # one it actually found. cloudio-band-day.sh puts the daytime lock back.
 #

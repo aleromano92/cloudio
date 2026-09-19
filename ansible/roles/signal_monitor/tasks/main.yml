@@ -117,16 +117,53 @@
   notify: systemd daemon-reload
   when: signal_monitor_enabled and zte_router_enabled and band_schedule_enabled
 
-- name: Enable the band schedule timers
+- name: Enable the daytime band timer
   ansible.builtin.systemd:
-    name: "{{ item }}"
+    name: cloudio-band-day.timer
     enabled: true
     state: started
     daemon_reload: true
-  loop:
-    - cloudio-band-night.timer
-    - cloudio-band-day.timer
   when: signal_monitor_enabled and zte_router_enabled and band_schedule_enabled
+
+# Toggled both ways, so pausing the night sweep is a vars.yml change rather
+# than a manual systemctl that the next run would quietly undo.
+- name: Enable or pause the night band timer
+  ansible.builtin.systemd:
+    name: cloudio-band-night.timer
+    enabled: "{{ band_night_enabled }}"
+    state: "{{ 'started' if band_night_enabled else 'stopped' }}"
+    daemon_reload: true
+  when: signal_monitor_enabled and zte_router_enabled and band_schedule_enabled
+
+- name: Install the uplink watchdog
+  ansible.builtin.template:
+    src: cloudio-watchdog.sh.j2
+    dest: /usr/local/sbin/cloudio-watchdog.sh
+    owner: root
+    group: root
+    mode: "0750"
+  notify: restart cloudio-watchdog
+  when: signal_monitor_enabled and zte_router_enabled and watchdog_enabled
+
+- name: Install the uplink watchdog service
+  ansible.builtin.template:
+    src: cloudio-watchdog.service.j2
+    dest: /etc/systemd/system/cloudio-watchdog.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - systemd daemon-reload
+    - restart cloudio-watchdog
+  when: signal_monitor_enabled and zte_router_enabled and watchdog_enabled
+
+- name: Enable the uplink watchdog
+  ansible.builtin.systemd:
+    name: cloudio-watchdog.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: signal_monitor_enabled and zte_router_enabled and watchdog_enabled
 
 - name: Install the signal digest script
   ansible.builtin.template:

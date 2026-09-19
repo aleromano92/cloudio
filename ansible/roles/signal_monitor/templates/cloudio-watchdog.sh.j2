@@ -1,0 +1,180 @@
+#!/bin/bash
+# Managed by Ansible (signal_monitor role). Runs forever under
+# cloudio-watchdog.service.
+#
+# Keeps the uplink up. "Down" is measured from here, not taken from the router:
+# the router will report itself attached, with a WAN IP, while passing no
+# traffic at all (seen on B1 at -127 dBm). So traffic decides whether anything
+# is wrong; the router's own state is recorded alongside, to say why.
+#
+# On an outage it climbs a ladder, stopping at the first rung that brings
+# traffic back:
+#   auto        LTE bands unlocked -- the modem measures every band at once and
+#               picks, which recovered in under 45s where our sequential sweep
+#               took six minutes. NR is left locked: it held every night on record.
+#   known-good  LTE locked to {{ watchdog_known_good_lte | join('+') }}, for when AUTO latches onto a
+#               distant mast.
+#   reboot      at most once per {{ watchdog_reboot_cooldown_minutes }} minutes, so a genuine operator
+#               outage doesn't become a reboot loop.
+# Whatever fixed it stays until the next scheduled band change: returning to the
+# intended lock would be a second deliberate interruption.
+#
+# Every event is one JSON line in {{ signal_log_dir }}/watchdog-events.jsonl.
+#
+# For a rehearsal that changes nothing on the router (it still reads the
+# diagnosis), point it at an unreachable address:
+#   WATCHDOG_DRY_RUN=1 WATCHDOG_TARGETS=192.0.2.1 WATCHDOG_STEP_WAIT=5 \
+#     WATCHDOG_STATE_DIR=/tmp/wd WATCHDOG_EVENTS=/tmp/wd/events.jsonl \
+#     /usr/local/sbin/cloudio-watchdog.sh
+set -uo pipefail
+
+. /usr/local/lib/cloudio/zte-session.sh
+# shellcheck disable=SC1091
+[ -r /etc/cloudio-signal-monitor.env ] && . /etc/cloudio-signal-monitor.env
+
+ROUTER_IP="{{ zte_router_ip }}"
+LOCK=/run/lock/cloudio-zte.lock
+read -r -a TARGETS <<<"${WATCHDOG_TARGETS:-{{ watchdog_targets | join(' ') }}}"
+INTERVAL=${WATCHDOG_INTERVAL:-{{ watchdog_interval_seconds }}}
+THRESHOLD=${WATCHDOG_THRESHOLD:-{{ watchdog_fail_threshold }}}
+STEP_WAIT=${WATCHDOG_STEP_WAIT:-{{ watchdog_step_wait_seconds }}}
+COOLDOWN=$(( ${WATCHDOG_COOLDOWN_MINUTES:-{{ watchdog_reboot_cooldown_minutes }}} * 60 ))
+KNOWN_GOOD=({{ watchdog_known_good_lte | join(' ') }})
+STATE_DIR=${WATCHDOG_STATE_DIR:-/var/lib/cloudio-watchdog}
+EVENTS=${WATCHDOG_EVENTS:-{{ signal_log_dir }}/watchdog-events.jsonl}
+DRY_RUN=${WATCHDOG_DRY_RUN:-0}
+DIAG_FIELDS=network_type,lte_rsrp,lte_snr,wan_active_band,nr5g_action_band,enodeb_id,cell_id,wan_ipaddr
+
+mkdir -p "$STATE_DIR" "$(dirname "$EVENTS")"
+exec 9>"$LOCK"
+
+now() { date +%s; }
+iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+
+log_event() {
+  jq -nc --arg ts "$(iso "$(now)")" --argjson e "$1" '{timestamp: $ts} + $e' >> "$EVENTS"
+}
+
+# Down means every target failed, so one unreachable resolver isn't an outage.
+link_ok() {
+  local t
+  for t in "${TARGETS[@]}"; do
+    ping -c 1 -W 2 -n "$t" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
+# Another job holds the router right now: the hourly speedtest saturates the
+# link and the night sweep changes bands on purpose, so failures while either
+# runs aren't evidence of anything.
+router_busy() { ! flock -n 9 || { flock -u 9; return 1; }; }
+
+# The router serves one session at a time, so everything this does to it runs
+# under the same lock as the sampler and the band jobs.
+with_router() {
+  flock -w 120 9 || return 1
+  local jar rc=0
+  jar=$(mktemp)
+  if zte_login "$ROUTER_IP" "${ZTE_PASSWORD:-}" "$jar"; then "$@" "$jar" || rc=$?; else rc=1; fi
+  rm -f "$jar"
+  flock -u 9
+  return $rc
+}
+
+_diagnose() { zte_status "$ROUTER_IP" "$1" "$DIAG_FIELDS"; }
+diagnose() {
+  local out
+  out=$(with_router _diagnose 2>/dev/null)
+  [ -n "$out" ] || out='{}'
+  printf '%s' "$out"
+}
+
+_act_auto()       { zte_set_lte_bands "$ROUTER_IP" "$1" AUTO >/dev/null; }
+_act_known_good() { zte_set_lte_bands "$ROUTER_IP" "$1" "${KNOWN_GOOD[@]}" >/dev/null; }
+_act_reboot()     { zte_reboot "$ROUTER_IP" "$1" >/dev/null; }
+
+act() {
+  [ "$DRY_RUN" = 1 ] && return 0
+  with_router "_act_$1"
+}
+
+last_reboot() { cat "$STATE_DIR/last-reboot" 2>/dev/null || echo 0; }
+
+# Traffic back within the step's wait, checked at the usual interval.
+recovered_within() {
+  local deadline=$(( $(now) + $1 ))
+  while [ "$(now)" -lt "$deadline" ]; do
+    sleep "$INTERVAL"
+    link_ok && return 0
+  done
+  return 1
+}
+
+# Prints the rung that brought traffic back, or nothing.
+run_ladder() {
+  local step
+  for step in auto known_good reboot; do
+    local patience=$STEP_WAIT
+    if [ "$step" = reboot ]; then
+      local next=$(( $(last_reboot) + COOLDOWN ))
+      if [ "$(now)" -lt "$next" ]; then
+        log_event "$(jq -nc --arg next "$(iso "$next")" '{event: "step", step: "reboot", skipped: "cooldown", next_allowed: $next}')"
+        continue
+      fi
+      now > "$STATE_DIR/last-reboot"
+      patience={{ band_reboot_wait_seconds }}
+      [ "$DRY_RUN" = 1 ] && patience=$STEP_WAIT
+    fi
+
+    local accepted=true
+    act "$step" || accepted=false
+    if recovered_within "$patience"; then
+      log_event "$(jq -nc --arg s "${step//_/-}" --argjson a "$accepted" '{event: "step", step: $s, accepted: $a, recovered: true}')"
+      printf '%s' "${step//_/-}"
+      return 0
+    fi
+    log_event "$(jq -nc --arg s "${step//_/-}" --argjson a "$accepted" '{event: "step", step: $s, accepted: $a, recovered: false}')"
+  done
+  return 1
+}
+
+log_event "$(jq -nc --argjson dry "$([ "$DRY_RUN" = 1 ] && echo true || echo false)" \
+  --arg targets "${TARGETS[*]}" '{event: "start", dry_run: $dry, targets: $targets}')"
+
+fails=0
+first_fail=0
+down_since=0
+fixed_by=""
+next_ladder=0
+
+while true; do
+  if link_ok; then
+    if [ "$down_since" -gt 0 ]; then
+      log_event "$(jq -nc --arg since "$(iso "$down_since")" --argjson secs "$(( $(now) - down_since ))" \
+        --arg by "${fixed_by:-self}" '{event: "up", down_since: $since, down_seconds: $secs, fixed_by: $by}')"
+      down_since=0 fixed_by="" next_ladder=0
+    fi
+    fails=0
+  elif router_busy; then
+    :
+  else
+    fails=$(( fails + 1 ))
+    [ "$fails" -eq 1 ] && first_fail=$(now)
+    if [ "$fails" -ge "$THRESHOLD" ] && [ "$down_since" -eq 0 ]; then
+      down_since=$first_fail
+      log_event "$(jq -nc --arg since "$(iso "$down_since")" --argjson r "$(diagnose)" \
+        '{event: "down", since: $since, router: $r}')"
+    fi
+    # A ladder that ran out of rungs waits for the reboot cooldown before it
+    # tries again, rather than churning bands through an operator outage.
+    if [ "$down_since" -gt 0 ] && [ "$(now)" -ge "$next_ladder" ]; then
+      if fixed_by=$(run_ladder); then
+        continue
+      fi
+      fixed_by=""
+      next_ladder=$(( $(last_reboot) + COOLDOWN ))
+      log_event "$(jq -nc --arg next "$(iso "$next_ladder")" '{event: "exhausted", retry_at: $next}')"
+    fi
+  fi
+  sleep "$INTERVAL"
+done

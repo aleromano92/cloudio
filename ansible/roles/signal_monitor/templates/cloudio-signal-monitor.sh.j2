@@ -18,8 +18,10 @@ set -uo pipefail
 # enodeb_id (the site/BTS), so a change in enodeb_id means the modem moved to
 # a different mast, not just a different sector. ngbr_cell_info lists the
 # neighbours it could see at that moment, which is what says whether a better
-# cell existed at all.
-ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,lte_rssi,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,cell_id,enodeb_id,lte_pci,nr5g_pci,lte_band,nr5g_action_band,ngbr_cell_info,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
+# cell existed at all. lte_band_lock/nr5g_band_lock are the configured lock, so
+# every sample says which band configuration it was taken under; the CA fields
+# stay empty unless the lock allows more than one LTE band.
+ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,lte_rssi,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,lte_ca_pcell_bandwidth,lte_multi_ca_scell_info,cell_id,enodeb_id,lte_pci,nr5g_pci,lte_band,wan_active_channel,nr5g_action_band,lte_band_lock,nr5g_band_lock,ngbr_cell_info,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
 
 # Logs in to the router and prints one JSON object on stdout: the normalised
 # signal fields plus login_ok:true, or {login_ok:false, error:...}. Always

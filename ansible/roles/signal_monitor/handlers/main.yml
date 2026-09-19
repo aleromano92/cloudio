@@ -1,0 +1,7 @@
+---
+# The watchdog runs forever, so a new script or unit only takes effect on restart.
+- name: restart cloudio-watchdog
+  ansible.builtin.systemd:
+    name: cloudio-watchdog.service
+    state: restarted
+    daemon_reload: true

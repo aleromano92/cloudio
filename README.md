@@ -80,7 +80,7 @@ cloudio/
 │       ├── haos_vm/            # download HAOS image, qm create/import, start
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
 │       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
-│       └── signal_monitor/     # hourly 5G signal + speedtest sampling, nightly band scheduling, daily digest
+│       └── signal_monitor/     # 5G signal + speedtest sampling, band scheduling, uplink watchdog
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
 │   └── .env.example
@@ -185,38 +185,65 @@ tail -f /var/log/cloudio-signal/metrics.jsonl              # on pve
 cat /var/log/cloudio-signal/digests/$(date -u +%F).txt
 ```
 
-### Nightly band scheduling
+### Band scheduling and the uplink watchdog
 
-The serving mast here goes out of service overnight — both the LTE anchor and
-the NR carrier — and the modem falls back to a mast ~40 dB weaker, so the
-daytime band lock points at a band that isn't on the air. Two timers fix that
-(`band_schedule_enabled`, needs `zte_router_enabled`):
+The home mast (`7b1e2`) switches its **B1 carrier off overnight** while B3 and
+B20 on the same mast stay up. A lock on B1 alone therefore pushes the modem onto
+a distant mast at around −124 dBm, where it passes next to nothing. First
+measured 2026-09-19: unlocked at 00:31, the modem was back on `7b1e2` within
+45 seconds, and a B20 lock carried ~300 Mbps all night against ~0 on the
+nights before.
 
-- **`cloudio-band-night.timer`** (`band_night_on_calendar`, default 00:30):
-  reboots the modem if it has no service at all, unlocks every LTE and NR band,
-  logs the neighbour cells it can now see, measures each band in
-  `band_night_candidates` in turn, and locks the best one that actually carries
-  traffic. Any unexpected exit restores AUTO rather than leaving the link
-  stranded on a dead band until morning.
-- **`cloudio-band-day.timer`** (`band_day_on_calendar`, default 07:13): puts
-  the daytime pair back — LTE `band_day_lte`, NR `band_day_nr`.
+Three pieces, all needing `zte_router_enabled`:
 
-Every step appends a JSON line to `band-events.jsonl`, so a night's decision
-can be read back afterwards:
+- **`cloudio-band-day.timer`** (`band_day_on_calendar`, default 07:13) locks
+  LTE `band_day_lte` and NR `band_day_nr`. `band_day_lte` is a list: several
+  bands in one lock let the modem aggregate them.
+- **`cloudio-band-night.timer`** (`band_night_on_calendar`, default 00:30,
+  toggled by `band_night_enabled`) reboots the modem if it has no service at
+  all, unlocks every band, logs the neighbour cells it can now see, measures each
+  band in `band_night_candidates` in turn, and locks the best one that carries
+  traffic. Any unexpected exit restores AUTO rather than stranding the link.
+- **`cloudio-watchdog.service`** (`watchdog_*`) pings `watchdog_targets` from
+  `pve` every 10s. "Down" means all of them failed 3 times running. It measures
+  traffic, not the router's own report, because the router reports itself
+  attached with a WAN IP while passing nothing. On an outage it climbs a ladder
+  and stops at the first rung that brings traffic back: **LTE AUTO** (the modem
+  measures every band at once and picks) → **lock `watchdog_known_good_lte`** →
+  **reboot the modem**, at most once per `watchdog_reboot_cooldown_minutes`.
+  Whatever fixed it stays until the next scheduled band change, so recovering
+  never costs a second interruption. Outages show on the dashboard as a strip
+  above the charts.
+
+**Experiment in progress (from 2026-09-19, 3 days and 3 nights):** the day lock
+is B1+B3+B20 + n78 and the night sweep is paused. If aggregation holds at
+midnight, losing B1 should cost one carrier rather than the link. It wins with
+no watchdog intervention between 23:30 and 01:00 and daytime download at least
+matching B1 alone (~330 Mbps; upload counts less). If it only wins by day, the
+set stays for the day and the night sweep comes back. If it's slower by day,
+revert to `band_day_lte: [1]` and `band_night_enabled: true`.
+
+Everything writes JSON lines next to `metrics.jsonl`:
 
 ```bash
+jq -c 'select(.event == "up")' /var/log/cloudio-signal/watchdog-events.jsonl
 jq -c 'select(.step == "probe") | {band, score, served}' \
   /var/log/cloudio-signal/band-events.jsonl
-systemctl list-timers 'cloudio-*'
+systemctl list-timers 'cloudio-*'; systemctl status cloudio-watchdog
 ```
 
-Both jobs and the sampler share one session library
-(`files/zte-session.sh`, installed at `/usr/local/lib/cloudio/`), so there is a
+A dry rehearsal of the watchdog that changes nothing on the router is
+documented at the top of `templates/cloudio-watchdog.sh.j2`.
+
+Every job that talks to the router shares one session library
+(`files/zte-session.sh`, installed at `/usr/local/lib/cloudio/`), so there's a
 single implementation of the login hash, the `AD` command signature and the
-band-mask encoding. Note the router keeps **one logged-in session at a time**:
-opening its web UI in a browser evicts the scripts' session, and an evicted
-session receives empty strings rather than an auth error — hence the re-login
-built into the library's read and set helpers.
+band-mask encoding. They also share one lock, `/run/lock/cloudio-zte.lock`. The
+router keeps **one logged-in session at a time** and answers an evicted session
+with empty strings rather than an auth error, so two jobs at once would quietly
+spoil each other's readings. The same eviction happens when you open the
+router's web UI in a browser, which is why the library's read and set helpers
+re-login and retry.
 
 ### Hardware transcoding
 
