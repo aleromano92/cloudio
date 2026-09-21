@@ -198,11 +198,13 @@
     const TABLE_METRICS = ["downloadMbps", "uploadMbps", "pingMs", "jitterMs", "nrRsrp", "nrSinr", "mdmTempC", "modem5gTempC"];
 
     // Text readings: identity, not quantity. Never averaged or charted -- a
-    // change of BTS is the interesting event, and cell_id's leading digits are
-    // the BTS, so the two columns together show sector moves vs mast moves.
+    // change of site is the interesting event: enodeb_id identifies one 4G base
+    // station (an eNodeB), and cell_id's leading digits are that same id, so the
+    // two columns together separate a move between sectors of one site from a
+    // move to a different site altogether.
     const TEXT_COLUMNS = [
       { key: "mode", label: "Mode", read: r => r.zte?.network_type },
-      { key: "bts", label: "Mast", read: r => r.zte?.enodeb_id },
+      { key: "bts", label: "Site", read: r => r.zte?.enodeb_id },
       { key: "cell", label: "4G cell", read: r => r.zte?.cell_id },
       { key: "band", label: "4G band", read: r => r.zte?.lte_band },
       { key: "lock", label: "4G band lock", read: r => lteLock(r.zte?.lte_band_lock) },
