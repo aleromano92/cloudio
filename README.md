@@ -45,14 +45,17 @@ Room is reserved for a 4th guest later: the personal-cloud phase (documents + ph
 
 Static IPs on the infrastructure; DHCP reservations for everything else.
 
-| Host | IP (last octet) |
-|---|---|
-| `pve` | `.10` |
-| `homeassistant` | `.11` |
-| `media` | `.12` |
-| `unifi` | `.13` |
+| Host | IP | Web UI |
+|---|---|---|
+| `pve` | `192.168.7.10` | Proxmox `https://192.168.7.10:8006`, signal dashboard `http://192.168.7.10:8420` |
+| `homeassistant` | `192.168.7.11` | `http://192.168.7.11` — **port 80**, not HA's default 8123 |
+| `media` | `192.168.7.12` | see [Media stack](#media-stack) |
+| `unifi` | `192.168.7.13` | `https://192.168.7.13:8443` |
 
-Names resolve via Tailscale MagicDNS and a local hosts/DNS entry. No dedicated DNS server in v1.
+The same addresses work away from home with Tailscale on: `pve` advertises
+`192.168.7.0/24` as a subnet route. That needs IP forwarding on `pve`, set in
+`/etc/sysctl.d/99-tailscale.conf`; Debian 13 ignores `/etc/sysctl.conf` at boot.
+No dedicated DNS server in v1.
 
 ---
 

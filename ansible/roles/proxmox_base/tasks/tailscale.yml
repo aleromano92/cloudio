@@ -27,13 +27,27 @@
     enabled: true
     state: started
 
+# In sysctl.d, not the module's default /etc/sysctl.conf: Debian 13's
+# systemd-sysctl only reads the sysctl.d directories at boot, so a setting in
+# sysctl.conf applied live and then vanished at the next reboot, silently
+# cutting Tailscale off from everything behind pve.
 - name: Allow IP forwarding (needed to advertise a subnet route)
   ansible.posix.sysctl:
     name: "{{ item }}"
     value: "1"
+    sysctl_file: /etc/sysctl.d/99-tailscale.conf
     sysctl_set: true
     state: present
     reload: true
+  loop:
+    - net.ipv4.ip_forward
+    - net.ipv6.conf.all.forwarding
+
+- name: Drop the forwarding lines from /etc/sysctl.conf, which boot ignores
+  ansible.builtin.lineinfile:
+    path: /etc/sysctl.conf
+    regexp: '^\s*{{ item | regex_escape }}\s*='
+    state: absent
   loop:
     - net.ipv4.ip_forward
     - net.ipv6.conf.all.forwarding
