@@ -27,7 +27,7 @@ blacklist_nvidia: true          # GeForce GT 740M is unused on this headless box
 # Format the USB drive ext4, then:  blkid /dev/sdX1   -> copy the UUID here.
 # While this is CHANGE-ME the playbook creates the mount point but does NOT
 # mount anything, and the media LXC's /data bind-mount will be empty.
-media_disk_uuid: "CHANGE-ME"
+media_disk_uuid: "ff49648b-d4e6-4628-bb08-87b8dd117fad"   # WD My Book 16 TB (WD160EDGZ), ext4, label "media"
 media_disk_mount: "/mnt/media"  # where it mounts on the Proxmox host
 
 # --- Backups -----------------------------------------------------------
@@ -90,7 +90,7 @@ media_hostname: "media"
 media_lxc_cores: 4
 media_lxc_memory: 4096
 media_lxc_swap: 512
-media_lxc_disk_gb: 12
+media_lxc_disk_gb: 32          # Docker images, Jellyfin metadata and transcode temp files
 media_lxc_storage: "local-lvm"
 media_lxc_bridge: "vmbr0"
 media_lxc_ip: "192.168.7.12/24"
@@ -104,11 +104,14 @@ media_appdata_services:
   - qbittorrent
   - jellyfin
 # subdirectories to create on the media drive (inside the container: /data/...)
+# torrents/ is where qBittorrent saves (DefaultSavePath=/data/torrents in its
+# own config); it shares the filesystem with media/ so the *arr apps hardlink
+# finished downloads into the library instead of copying them.
 media_data_subdirs:
   - media/movies
   - media/tv
   - media/music
-  - downloads
+  - torrents
 
 # --- UniFi LXC (Docker: unifi-network-application + a dedicated Mongo) -----
 unifi_ctid: 113

@@ -2,6 +2,22 @@
 # The media stack: one unprivileged LXC running Docker + docker-compose.
 # See docs/adr/0002 (config in git, state in backups).
 
+# The container is unprivileged, so user N inside it is user 100000+N on the
+# host, and its root has no rights over the drive's host-owned folders. The
+# folders are therefore created from the host, already owned by the host-side
+# id of the stack's user; the container never has to create anything there.
+- name: Create the media folders on the drive, owned by the stack's user
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ 100000 + media_puid | int }}"
+    group: "{{ 100000 + media_pgid | int }}"
+    mode: "0755"
+  loop: >-
+    {{ [media_disk_mount, media_disk_mount ~ '/media']
+       + media_data_subdirs | map('regex_replace', '^', media_disk_mount ~ '/') | list }}
+  when: media_disk_uuid != "CHANGE-ME"
+
 - name: Provision the media LXC and bring up its stack
   ansible.builtin.import_role:
     name: docker_lxc
@@ -18,9 +34,7 @@
     docker_lxc_ip: "{{ media_lxc_ip }}"
     docker_lxc_create_args: "--mp0 {{ media_disk_mount }},mp=/data,backup=0"
     docker_lxc_stack_dir: /opt/media-stack
-    docker_lxc_dirs: >-
-      {{ media_appdata_services | map('regex_replace', '^', '/opt/appdata/') | list
-         + media_data_subdirs | map('regex_replace', '^', '/data/') | list }}
+    docker_lxc_dirs: "{{ media_appdata_services | map('regex_replace', '^', '/opt/appdata/') | list }}"
     docker_lxc_env_template: "{{ playbook_dir }}/roles/media_lxc/templates/env.j2"
     docker_lxc_files:
       - { src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml", name: docker-compose.yaml, mode: "0644" }
