@@ -35,6 +35,21 @@ services:
     #   - /dev/dri:/dev/dri
     restart: unless-stopped
 
+  # HTTPS in front of Jellyfin for friends outside the house; see Caddyfile.
+  # Host networking like Jellyfin: it reaches Jellyfin on 127.0.0.1 and takes
+  # 443 (forwarded by the ZTE) and 80 (LAN only) on 192.168.7.12.
+  caddy:
+    image: caddy:2.11.4
+    container_name: caddy
+    network_mode: host
+    environment:
+      - JELLYFIN_HOST=${JELLYFIN_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${APPDATA}/caddy/data:/data        # certificates and keys
+      - ${APPDATA}/caddy/config:/config
+    restart: unless-stopped
+
   sonarr:
     image: linuxserver/sonarr:4.0.16
     container_name: sonarr

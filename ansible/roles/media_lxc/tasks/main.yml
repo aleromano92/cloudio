@@ -38,3 +38,4 @@
     docker_lxc_env_template: "{{ playbook_dir }}/roles/media_lxc/templates/env.j2"
     docker_lxc_files:
       - { src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml", name: docker-compose.yaml, mode: "0644" }
+      - { src: "{{ playbook_dir }}/../media-stack/Caddyfile", name: Caddyfile, mode: "0644" }

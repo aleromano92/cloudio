@@ -103,6 +103,10 @@ media_appdata_services:
   - prowlarr
   - qbittorrent
   - jellyfin
+  - caddy
+# The name friends use; the ddns role keeps it pointing at the home IP, and
+# Caddy serves Jellyfin's HTTPS under it.
+jellyfin_public_host: "{{ ddns_record }}.{{ ddns_domain }}"
 # subdirectories to create on the media drive (inside the container: /data/...)
 # torrents/ is where qBittorrent saves (DefaultSavePath=/data/torrents in its
 # own config); it shares the filesystem with media/ so the *arr apps hardlink

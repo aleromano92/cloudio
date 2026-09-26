@@ -1,0 +1,25 @@
+# Caddy: HTTPS for Jellyfin from the internet. Deployed next to
+# docker-compose.yaml by ansible/roles/media_lxc.
+#
+# The ZTE forwards only TCP 443 to this container, so Let's Encrypt can only
+# verify the domain over 443 itself (TLS-ALPN-01); the HTTP challenge is
+# disabled rather than left to time out on a port the internet can't reach.
+# The certificate and its key live in ${APPDATA}/caddy/data, at home: nothing
+# upstream can decrypt the streams.
+#
+# JELLYFIN_HOST comes from .env; ansible/roles/ddns keeps it pointing at the
+# home IP, which the 5G operator changes several times a day.
+
+{$JELLYFIN_HOST} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+
+	# Jellyfin runs on host networking in the same container. Caddy passes the
+	# client's address in X-Forwarded-For; Jellyfin only believes it because
+	# 127.0.0.1 is in its KnownProxies (network.xml), which is what makes
+	# friends count as remote rather than local.
+	reverse_proxy 127.0.0.1:8096
+}
