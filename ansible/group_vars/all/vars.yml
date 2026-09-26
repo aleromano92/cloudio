@@ -107,6 +107,36 @@ media_appdata_services:
 # The name friends use; the ddns role keeps it pointing at the home IP, and
 # Caddy serves Jellyfin's HTTPS under it.
 jellyfin_public_host: "{{ ddns_record }}.{{ ddns_domain }}"
+# qBittorrent settings, applied through its web API after every deploy by
+# media-stack/qbittorrent-configure.py, so a rebuilt container comes back
+# configured the same way (its own config file is rewritten on every exit, so
+# it can't be the source of truth). Speeds are bytes/s: that's the API's unit,
+# whatever its docs say (the factory alternative limit reads back as 10240).
+# Seed everything, forever; cap upload harder on weekdays 08:00-19:00, when
+# two people work from home on video calls over the same 5G upload (~45-130 Mbps
+# depending on the 5G cell). Unlimited data SIM, so volume isn't a constraint.
+qbittorrent_preferences:
+  queueing_enabled: false              # every torrent seeds at once (was 7)
+  max_ratio_enabled: false             # never stop seeding (was: stop at ratio 1.5)
+  max_ratio: -1
+  max_seeding_time_enabled: false
+  max_inactive_seeding_time_enabled: false
+  max_uploads: 100                     # upload slots across all torrents (was 20)
+  max_uploads_per_torrent: 20          # was 7
+  limit_tcp_overhead: true             # caps count protocol overhead, so they hold on the wire
+  limit_utp_rate: true
+  up_limit: 5242880                    # nights and weekends: 5 MiB/s, ~42 Mbps, a third of a good 5G cell
+  dl_limit: 0                          # unlimited
+  alt_up_limit: 1572864                # weekday work hours: 1.5 MiB/s, ~12 Mbps; calls need ~8 for two
+  alt_dl_limit: 10485760               # 10 MiB/s
+  scheduler_enabled: true              # alt limits apply Monday-Friday 08:00-19:00 (container TZ)
+  scheduler_days: 1                    # 0 every day, 1 weekdays, 2 weekends
+  schedule_from_hour: 8
+  schedule_from_min: 0
+  schedule_to_hour: 19
+  schedule_to_min: 0
+  listen_port: 6881                    # forwarded, TCP and UDP, by the ZTE
+  upnp: false
 # subdirectories to create on the media drive (inside the container: /data/...)
 # torrents/ is where qBittorrent saves (DefaultSavePath=/data/torrents in its
 # own config); it shares the filesystem with media/ so the *arr apps hardlink

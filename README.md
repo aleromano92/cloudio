@@ -210,7 +210,28 @@ needs `chown -R 101000:101000` afterwards.
   (1900/udp) work and it sees clients' real addresses.
 
 **qBittorrent** listens on 6881, forwarded (TCP and UDP) by the ZTE so peers can
-connect to it.
+connect to it. Its settings are code: `qbittorrent_preferences` in `vars.yml`,
+applied through its web API after every deploy by
+`media-stack/qbittorrent-configure.py`, which changes only what differs (its
+own config file is rewritten on every exit, so it can't be the source of
+truth). On a fresh container it first allows API calls from inside the
+container itself, so no WebUI password is involved. The policy:
+
+| | Weekdays 08:00–19:00 | Nights and weekends |
+|---|---|---|
+| Upload | 1.5 MiB/s (~12 Mbps) | 5 MiB/s (~42 Mbps) |
+| Download | 10 MiB/s | unlimited |
+
+Every torrent seeds, forever: no queue, no ratio or seeding-time limit, 20
+upload slots per torrent. The weekday cap leaves room for two people on video
+calls even on a weak 5G cell (~45 Mbps up). The night cap stays well short of
+the upload so friends' Jellyfin streams keep working, and so the watchdog's
+pings don't fail on a saturated link and trigger a false outage. The SIM is
+unlimited, so volume isn't a constraint. Speeds in `vars.yml` are bytes/s,
+which is the API's real unit whatever its docs say.
+
+Torrents re-added after the Mac migration sit in the `reseed` category, which
+no *arr app watches, so none of them tries to import them again.
 
 **Migrated from the Mac** on 2026-09-26: the library (1,909 files, with every
 hardlink kept) and every app's config and database from `~/cloudio-volumes`.

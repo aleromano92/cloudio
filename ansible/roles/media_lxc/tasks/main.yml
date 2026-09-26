@@ -39,3 +39,26 @@
     docker_lxc_files:
       - { src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml", name: docker-compose.yaml, mode: "0644" }
       - { src: "{{ playbook_dir }}/../media-stack/Caddyfile", name: Caddyfile, mode: "0644" }
+      - { src: "{{ playbook_dir }}/../media-stack/qbittorrent-configure.py", name: qbittorrent-configure.py, mode: "0755" }
+
+# qBittorrent rewrites its own config file on every exit, so its settings are
+# applied through its web API instead, from qbittorrent_preferences in vars.yml.
+# Only what differs is changed; see media-stack/qbittorrent-configure.py.
+- name: Render qBittorrent's desired settings on the node
+  ansible.builtin.copy:
+    content: "{{ qbittorrent_preferences | to_nice_json }}\n"
+    dest: /root/.cloudio-media-qbittorrent-preferences.json
+    mode: "0644"
+
+- name: Push qBittorrent's desired settings into the container
+  ansible.builtin.command: >-
+    pct push {{ media_ctid }} /root/.cloudio-media-qbittorrent-preferences.json
+    /opt/media-stack/qbittorrent-preferences.json --perms 0644
+  changed_when: false
+
+- name: Apply qBittorrent's settings through its web API
+  ansible.builtin.command: >-
+    pct exec {{ media_ctid }} -- python3 /opt/media-stack/qbittorrent-configure.py
+    /opt/media-stack/qbittorrent-preferences.json
+  register: media_qbittorrent_prefs
+  changed_when: media_qbittorrent_prefs.stdout.startswith('CHANGED')
