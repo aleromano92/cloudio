@@ -56,11 +56,28 @@
       fi
   register: docker_lxc_net_conf
   when: docker_lxc_status.rc == 0
-  changed_when: "'CHANGED' in docker_lxc_net_conf.stdout"
+  # An exact match: "CHANGED" is a substring of "UNCHANGED", and a substring
+  # test here once made every run reboot the container.
+  changed_when: "docker_lxc_net_conf.stdout | trim == 'CHANGED'"
   # `pct create` only sets net0 once, so an existing container would otherwise
   # keep its old IP/gateway forever. hwaddr is carried forward explicitly:
   # omitting it makes `pct set --net0` generate a new random MAC, orphaning any
   # router-side MAC-IP binding.
+
+- name: Grow the {{ docker_lxc_hostname }} LXC's root disk to {{ docker_lxc_disk_gb }} GB
+  ansible.builtin.shell:
+    cmd: |
+      set -e
+      current=$(grep '^rootfs:' /etc/pve/lxc/{{ docker_lxc_ctid }}.conf | grep -oP 'size=\K[0-9]+(?=G)')
+      if [ "${current:-0}" -lt {{ docker_lxc_disk_gb }} ]; then
+        pct resize {{ docker_lxc_ctid }} rootfs {{ docker_lxc_disk_gb }}G
+        echo CHANGED
+      fi
+  register: docker_lxc_resize
+  when: docker_lxc_status.rc == 0
+  changed_when: "'CHANGED' in docker_lxc_resize.stdout"
+  # Like net0, `pct create` only sizes the disk once. `pct resize` grows a
+  # running container in place but can never shrink one, so this only grows.
 
 - name: Allow Docker's overlay filesystem inside the {{ docker_lxc_hostname }} LXC
   ansible.builtin.lineinfile:
@@ -70,10 +87,12 @@
   # nesting=1,keyctl=1 alone isn't enough for Docker's overlay2 driver on this
   # Proxmox line. See docs/adr/0008.
 
+# Only a running container needs the reboot: a stopped one picks the change up
+# from the start task below, and `pct reboot` refuses a stopped container.
 - name: Reboot the {{ docker_lxc_hostname }} LXC to apply an AppArmor/network change
   ansible.builtin.command: "pct reboot {{ docker_lxc_ctid }}"
   when: >-
-    docker_lxc_status.rc == 0 and
+    'status: running' in docker_lxc_status.stdout and
     (docker_lxc_apparmor_conf.changed or docker_lxc_net_conf.changed | default(false))
 
 - name: Start the {{ docker_lxc_hostname }} LXC
