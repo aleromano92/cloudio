@@ -5,7 +5,7 @@
 #
 # APPDATA lives on the LXC rootfs (captured by nightly vzdump).
 # MEDIA (/data) is the external USB drive, bind-mounted by the LXC; it holds
-#   /data/media/{movies,tv,music} and /data/downloads on ONE filesystem so the
+#   /data/media/{movies,tv,music} and /data/torrents on ONE filesystem so the
 #   *arr apps can hardlink instead of copy. It is NOT backed up (disposable).
 #
 # Image tags are pinned. Bump them deliberately.
@@ -21,11 +21,13 @@ services:
     volumes:
       - ${APPDATA}/jellyfin:/config
       - ${MEDIA}/media:/data/media
-    ports:
-      - "8096:8096"      # web UI
-      - "8920:8920"      # https
-      - "7359:7359/udp"  # LAN discovery
-      - "1900:1900/udp"  # DLNA
+    # Host networking, as the original macOS compose file recommended for Linux
+    # (Docker Desktop's VM is what ruled it out there). Client discovery (7359/udp
+    # broadcast) and DLNA (1900/udp multicast) don't cross Docker's bridge, and on
+    # the bridge Jellyfin sees Docker's addresses instead of clients' real ones,
+    # which decides who counts as local. The LXC has its own IP, so Jellyfin
+    # listens on 192.168.7.12 directly: 8096 web UI, 8920 https, 7359, 1900.
+    network_mode: host
     # Hardware transcoding (Intel Quick Sync — H.264 only on this CPU) needs the
     # render node exposed to this unprivileged LXC first. Left off until that
     # LXC config is added — see README "Hardware transcoding".
