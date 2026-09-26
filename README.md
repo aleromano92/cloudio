@@ -6,9 +6,10 @@ This repo is the reproducible recipe: from a fresh Proxmox install, cloning it a
 running one Ansible playbook rebuilds every service. It is also a deliberate
 learning project — Proxmox, LXC, Ansible, and home networking.
 
-> Status: **first draft.** Docs, decisions, and all four Ansible roles are written
-> but **untested against real hardware** — expect to refine them during the actual
-> build. See the roadmap below.
+> Status: **running on the real hardware** since September 2026: Proxmox, the
+> media stack (served to the internet for Jellyfin only), UniFi, and the 5G
+> monitoring. The smart-home gateway is blocked (see the roadmap), and
+> **backups are not enabled yet** (`backups_enabled: false`).
 
 ---
 
@@ -21,7 +22,7 @@ learning project — Proxmox, LXC, Ansible, and home networking.
 | RAM | **16 GB** DDR3L-1600 SO-DIMM (2×8 GB) | Upgraded from 8 GB; 16 GB is the ceiling |
 | GPU | Intel HD 4400 + GeForce GT 740M | dGPU is blacklisted (unused, saves power/heat) |
 | System disk | 256 GB SSD | Proxmox + configs + container rootfs |
-| Media disk | External 3.5" USB 3.0 desktop drive (~8 TB, ext4) | Media library only — **not backed up** (disposable) |
+| Media disk | WD My Book 16 TB (WD160EDGZ, 7200 rpm), USB 3, ext4 | Media library only — **not backed up** (disposable). The enclosure encrypts in hardware with its own key: harmless, but the bare disk is unreadable outside it |
 
 Frigate / local NVR is **out of scope** on this hardware. Camera recording stays on
 the Reolink NVR's own disk.
@@ -35,7 +36,7 @@ One Proxmox node (`pve`) hosting:
 | Guest | Type | Purpose |
 |---|---|---|
 | `homeassistant` | VM (HAOS, 2 GB / 2 vCPU) | Home Assistant OS with Supervisor + add-ons |
-| `media` | LXC (Docker) | Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr, qBittorrent via `docker-compose` |
+| `media` | LXC (Docker) | Jellyfin, Sonarr, Radarr, Lidarr, Prowlarr, qBittorrent, and Caddy (HTTPS for Jellyfin from the internet) via `docker-compose` |
 | `unifi` | LXC (Docker) | UniFi Network Application + a dedicated MongoDB (controller for the U7 Pro Wall APs) |
 
 Room is reserved for a 4th guest later: the personal-cloud phase (documents + photos, with real redundancy).
@@ -68,7 +69,7 @@ cloudio/
 ├── ansible/
 │   ├── ansible.cfg
 │   ├── inventory.yml           # one host: pve
-│   ├── site.yml                # runs the four roles
+│   ├── site.yml                # runs the roles below
 │   ├── requirements.yml        # ansible.posix, community.general
 │   ├── group_vars/all/
 │   │   ├── vars.yml            # everything you set (CHANGE-ME markers)
@@ -80,9 +81,11 @@ cloudio/
 │       ├── haos_vm/            # download HAOS image, qm create/import, start
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
 │       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
-│       └── signal_monitor/     # 5G signal + speedtest sampling, band scheduling, uplink watchdog
+│       ├── signal_monitor/     # 5G signal + speedtest sampling, band scheduling, uplink watchdog
+│       └── ddns/               # keeps jellyfin.aleromano.com pointing at the home IP (Vercel DNS)
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
+│   ├── Caddyfile               # HTTPS for Jellyfin, certificate kept at home
 │   └── .env.example
 └── unifi-stack/
     ├── docker-compose.yaml     # unifi-network-application + a dedicated MongoDB
@@ -143,23 +146,73 @@ Re-running is safe (idempotent). Ansible drives the native `pct` / `qm` /
 `docker compose` CLIs directly — there is no Terraform and no state file; "does
 reality match the repo?" is answered by re-running the playbook (see ADR-0003).
 
-### Before the external drives arrive
+### External drives
 
-`base`, `haos`, and `unifi` run fully without any external storage. Run those:
-
-```bash
-ansible-playbook site.yml --ask-vault-pass --tags base,haos,unifi
-```
-
-Hold `--tags media` until the media drive is in (`media_disk_uuid` set), and keep
-`backups_enabled: false` until the local backup disk + Storage Box exist. Then:
+The media drive is in and mounted (`media_disk_uuid` set). Keep
+`backups_enabled: false` until the local backup disk and the Storage Box exist,
+then:
 
 ```bash
-# media drive fitted, formatted ext4, UUID in vars.yml:
-ansible-playbook site.yml --ask-vault-pass --tags storage,media
 # backup disk mounted at /mnt/backup, Storage Box created, backups_enabled: true:
 ansible-playbook site.yml --ask-vault-pass --tags backup
 ```
+
+### Media stack
+
+Everything runs in the `media` LXC (`192.168.7.12`). On the LAN, or from
+anywhere with Tailscale on (the node advertises `192.168.7.0/24` as a subnet
+route):
+
+| App | URL | Reachable from the internet |
+|---|---|---|
+| Jellyfin | `http://192.168.7.12:8096` | yes, as `https://jellyfin.aleromano.com` |
+| qBittorrent | `http://192.168.7.12:8080` | no |
+| Sonarr | `http://192.168.7.12:8989` | no |
+| Radarr | `http://192.168.7.12:7878` | no |
+| Lidarr | `http://192.168.7.12:8686` | no |
+| Prowlarr | `http://192.168.7.12:9696` | no |
+
+**The drive.** `/mnt/media` on the host is `/data` in the container:
+`media/{movies,tv,music}` for the library and `torrents/` for qBittorrent
+(`DefaultSavePath=/data/torrents`). They share one filesystem on purpose, so the
+*arr apps hardlink a finished download into the library instead of copying it.
+Copying the library anywhere must keep that: one `rsync -aH` of the whole tree
+in a single run, since rsync can only see that two names are one file within
+one invocation. Formatted with no reserved blocks (`-m 0`, which would
+otherwise waste ~800 GB) and one inode per MB (`-T largefile`).
+
+**Ownership.** The container is unprivileged, so its user 1000 (the stack's
+`PUID`) is user **101000** on the host, and the container's own root has no
+rights over the drive at all. The role therefore creates the drive's folders
+from the host, owned by 101000. Anything copied onto the drive from the host
+needs `chown -R 101000:101000` afterwards.
+
+**Jellyfin from the internet** (why and how: [ADR-0010](docs/adr/0010-jellyfin-served-to-the-internet-from-home.md)):
+- The ZTE forwards TCP 443 to Caddy, which serves `jellyfin.aleromano.com` with
+  a Let's Encrypt certificate obtained over 443 alone (port 80 stays closed).
+  The certificate and its key live in `/opt/appdata/caddy` in the container.
+- The `ddns` role checks the public IP every minute and updates the A record
+  through the Vercel API (`vault_vercel_token`, a token scoped to the Vercel
+  team that holds the domain). Every change is logged to
+  `/var/log/cloudio-ddns/changes.jsonl` on `pve`.
+- **Set by hand, not by Ansible:** Jellyfin trusts Caddy as a proxy
+  (`KnownProxies` = `127.0.0.1` in `/opt/appdata/jellyfin/config/network.xml`),
+  so viewers count as remote rather than local. Also in Jellyfin's dashboard:
+  one account per friend with remote access, and an internet streaming bitrate
+  limit, since remote viewers share the 5G upload.
+- **At home, use the LAN address.** The ZTE doesn't loop connections to its
+  own public IP back inside, so `jellyfin.aleromano.com` doesn't connect from
+  the LAN.
+- Jellyfin runs on host networking, so LAN discovery (7359/udp) and DLNA
+  (1900/udp) work and it sees clients' real addresses.
+
+**qBittorrent** listens on 6881, forwarded (TCP and UDP) by the ZTE so peers can
+connect to it.
+
+**Migrated from the Mac** on 2026-09-26: the library (1,909 files, with every
+hardlink kept) and every app's config and database from `~/cloudio-volumes`.
+The library paths inside the containers didn't change, so nothing needed
+rewriting.
 
 ### 5G/4G signal + speedtest monitoring
 
@@ -215,13 +268,15 @@ Three pieces, all needing `zte_router_enabled`:
   never costs a second interruption. Outages show on the dashboard as a strip
   above the charts.
 
-**Experiment in progress (from 2026-09-19, 3 days and 3 nights):** the day lock
-is B1+B3+B20 + n78 and the night sweep is paused. If aggregation holds at
-midnight, losing B1 should cost one carrier rather than the link. It wins with
-no watchdog intervention between 23:30 and 01:00 and daytime download at least
-matching B1 alone (~330 Mbps; upload counts less). If it only wins by day, the
-set stays for the day and the night sweep comes back. If it's slower by day,
-revert to `band_day_lte: [1]` and `band_night_enabled: true`.
+**Result of the 2026-09-19 experiment (kept):** the day lock is B1+B3+B20 +
+n78, and the night sweep stays paused as a fallback. With the three bands
+allowed, the modem sits on **B3**, which is a better band here than B1, and
+never needed B1 at all, so B1 switching off at midnight costs nothing. Its
+three nights averaged 364–539 Mbps, against ~0 before. The modem never actually
+aggregated the bands; the gain is B3. The 5G cell matters more than the 4G
+band: two good n78 cells here (PCI `1e`, `1f`, ~−70 dBm, ~130 Mbps upload) and
+one poor one (`15`, ~−100 dBm, ~48 Mbps upload). The network, not the modem,
+picks it, so no lever on our side moves it.
 
 Everything writes JSON lines next to `metrics.jsonl`:
 
@@ -271,10 +326,13 @@ not backed up.
 
 ## Remote access
 
-Tailscale on the node, the laptop, and phones. **Nothing is port-forwarded** on the
-router. The public IP is publicly reachable but **dynamic** (rotates every few
-days) — irrelevant here, since Tailscale doesn't use it and needs no dynamic DNS
-(see ADR-0006).
+Tailscale on the node, the laptop, and phones, for everything administrative:
+Proxmox, Home Assistant, UniFi, the *arr apps and qBittorrent (ADR-0006).
+
+**Two exceptions are port-forwarded on the ZTE**, both to the `media` LXC: TCP
+443 for Jellyfin at `https://jellyfin.aleromano.com`, so friends can watch
+without a VPN client, and TCP+UDP 6881 for qBittorrent to seed. The public IP
+changes several times a day, which the `ddns` role follows (ADR-0010).
 
 ---
 
