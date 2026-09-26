@@ -1,0 +1,9 @@
+[Unit]
+Description=cloudio dynamic DNS ({{ ddns_record }}.{{ ddns_domain }} -> home IP)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudio-ddns.sh
+TimeoutStartSec=90

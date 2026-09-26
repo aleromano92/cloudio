@@ -32,3 +32,7 @@ vault_zte_router_password: "CHANGE-ME"
 # SMTP relay password for the daily signal digest email (e.g. a Gmail app
 # password). Only used if signal_email_enabled: true.
 vault_signal_email_smtp_password: "CHANGE-ME"
+
+# Vercel API token for the dynamic DNS record (aleromano.com's DNS is on
+# Vercel): Account Settings -> Tokens. Only used if ddns_enabled: true.
+vault_vercel_token: "CHANGE-ME"

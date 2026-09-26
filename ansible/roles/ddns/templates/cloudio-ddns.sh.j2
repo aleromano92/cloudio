@@ -1,0 +1,88 @@
+#!/bin/bash
+# Managed by Ansible (ddns role). Runs every {{ ddns_check_seconds }}s from cloudio-ddns.timer.
+#
+# Keeps {{ ddns_record }}.{{ ddns_domain }} pointing at this house's public IPv4,
+# which the 5G operator changes several times a day, through the Vercel DNS API
+# ({{ ddns_domain }}'s DNS is hosted there). Only the IP ever leaves the house:
+# streams go direct, and HTTPS terminates here.
+#
+# Vercel is only called when the IP differs from the one last set, plus a
+# re-check every 30 minutes in case the record was edited by hand.
+# `--force` skips that shortcut and always asks Vercel.
+set -uo pipefail
+
+# shellcheck disable=SC1091
+. /etc/cloudio-ddns.env
+
+DOMAIN="{{ ddns_domain }}"
+NAME="{{ ddns_record }}"
+TTL={{ ddns_ttl }}
+TEAM="{{ ddns_vercel_team_id }}"
+API=https://api.vercel.com
+STATE=/var/lib/cloudio-ddns
+CHANGES=/var/log/cloudio-ddns/changes.jsonl
+FORCE=${1:-}
+
+mkdir -p "$STATE" "$(dirname "$CHANGES")"
+
+team_query() { [ -n "$TEAM" ] && printf '%s' "$1teamId=$TEAM"; }
+
+# Three independent services, so one being down doesn't stop an update.
+public_ip() {
+  local url ip
+  for url in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com; do
+    ip=$(curl -4 -fsS --max-time 8 "$url" 2>/dev/null | tr -d '[:space:]')
+    if [[ $ip =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]]; then printf '%s' "$ip"; return 0; fi
+  done
+  return 1
+}
+
+# vercel <method> <path> [json-body] -> body on stdout, non-zero unless 2xx
+vercel() {
+  local method=$1 path=$2 body=${3:-} out code
+  local -a data=()
+  [ -n "$body" ] && data=(--data "$body")
+  out=$(mktemp)
+  code=$(curl -sS --max-time 20 -o "$out" -w '%{http_code}' -X "$method" \
+    -H "Authorization: Bearer ${VERCEL_TOKEN:-}" -H "Content-Type: application/json" \
+    "${data[@]}" "$API$path")
+  cat "$out"; rm -f "$out"
+  [[ $code == 2* ]]
+}
+
+# No IP means no uplink: the watchdog owns outages, so that's not an error here.
+ip=$(public_ip) || { echo "no public IP reachable, skipping"; exit 0; }
+
+last=$(cat "$STATE/ip" 2>/dev/null || true)
+if [ "$FORCE" != --force ] && [ "$ip" = "$last" ] && [ -n "$(find "$STATE/ip" -mmin -30 2>/dev/null)" ]; then
+  exit 0
+fi
+
+if ! records=$(vercel GET "/v4/domains/$DOMAIN/records?limit=100$(team_query '&')"); then
+  echo "Vercel refused to list $DOMAIN records (token, scope or team id?): $records" >&2
+  exit 1
+fi
+read -r id current <<<"$(printf '%s' "$records" | jq -r --arg n "$NAME" \
+  '[.records[] | select(.name == $n and .type == "A")][0] // empty | "\(.id) \(.value)"')"
+
+if [ -n "${id:-}" ] && [ "$current" = "$ip" ]; then
+  action=unchanged
+elif [ -n "${id:-}" ]; then
+  body=$(jq -nc --arg v "$ip" --argjson t "$TTL" '{value: $v, ttl: $t}')
+  vercel PATCH "/v1/domains/records/$id$(team_query '?')" "$body" >/dev/null \
+    || { echo "Vercel refused the update of $NAME.$DOMAIN" >&2; exit 1; }
+  action=updated
+else
+  body=$(jq -nc --arg n "$NAME" --arg v "$ip" --argjson t "$TTL" \
+    '{name: $n, type: "A", value: $v, ttl: $t, comment: "cloudio ddns, managed by pve"}')
+  vercel POST "/v2/domains/$DOMAIN/records$(team_query '?')" "$body" >/dev/null \
+    || { echo "Vercel refused to create $NAME.$DOMAIN" >&2; exit 1; }
+  action=created
+fi
+
+printf '%s' "$ip" > "$STATE/ip"
+if [ "$action" != unchanged ]; then
+  jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg a "$action" --arg from "${current:-}" --arg to "$ip" \
+    '{timestamp: $ts, action: $a, from: $from, to: $to}' >> "$CHANGES"
+fi
+echo "$NAME.$DOMAIN $action -> $ip"

@@ -1,0 +1,64 @@
+---
+# Keeps a DNS name pointing at the home IP, which the 5G operator changes
+# several times a day. See the header of templates/cloudio-ddns.sh.j2.
+
+- name: Require the Vercel token before touching DNS
+  ansible.builtin.assert:
+    that: vault_vercel_token is defined and vault_vercel_token | length > 0
+    fail_msg: >-
+      ddns_enabled is true but vault_vercel_token is empty. Create a token in
+      Vercel (Account Settings -> Tokens) and add it with `ansible-vault edit
+      group_vars/all/vault.yml`.
+  when: ddns_enabled
+
+- name: Install the Vercel token env file
+  ansible.builtin.template:
+    src: cloudio-ddns.env.j2
+    dest: /etc/cloudio-ddns.env
+    owner: root
+    group: root
+    mode: "0600"
+  when: ddns_enabled
+
+- name: Install the dynamic DNS script
+  ansible.builtin.template:
+    src: cloudio-ddns.sh.j2
+    dest: /usr/local/sbin/cloudio-ddns.sh
+    owner: root
+    group: root
+    mode: "0750"
+  when: ddns_enabled
+
+- name: Install the dynamic DNS systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - cloudio-ddns.service
+    - cloudio-ddns.timer
+  notify: systemd daemon-reload
+  when: ddns_enabled
+
+# Runs the real thing once, so a wrong token, scope or team id fails the
+# playbook here instead of silently failing every minute afterwards.
+- name: Point {{ ddns_record }}.{{ ddns_domain }} at the current home IP
+  ansible.builtin.command: /usr/local/sbin/cloudio-ddns.sh --force
+  register: ddns_first_run
+  changed_when: "'unchanged' not in ddns_first_run.stdout"
+  when: ddns_enabled
+
+- name: Enable the dynamic DNS timer
+  ansible.builtin.systemd:
+    name: cloudio-ddns.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: ddns_enabled
+
+- name: Dynamic DNS result
+  ansible.builtin.debug:
+    msg: "{{ ddns_first_run.stdout }}"
+  when: ddns_enabled

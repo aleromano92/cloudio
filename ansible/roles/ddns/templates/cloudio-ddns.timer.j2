@@ -1,0 +1,10 @@
+[Unit]
+Description=Check the home IP for {{ ddns_record }}.{{ ddns_domain }} every {{ ddns_check_seconds }}s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec={{ ddns_check_seconds }}s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

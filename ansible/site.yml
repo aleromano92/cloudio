@@ -15,3 +15,5 @@
       tags: ["unifi", "guests"]
     - role: signal_monitor
       tags: ["monitoring"]
+    - role: ddns
+      tags: ["ddns"]
