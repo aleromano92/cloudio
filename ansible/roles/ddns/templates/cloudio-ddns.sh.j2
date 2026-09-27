@@ -7,7 +7,8 @@
 # streams go direct, and HTTPS terminates here.
 #
 # Vercel is only called when the IP differs from the one last set, plus a
-# re-check every 30 minutes in case the record was edited by hand.
+# re-check every 30 minutes in case the record was edited by hand. When the IP
+# changes, ddns_on_ip_change also runs (qBittorrent re-announcing its torrents).
 # `--force` skips that shortcut and always asks Vercel.
 set -uo pipefail
 
@@ -22,6 +23,7 @@ API=https://api.vercel.com
 STATE=/var/lib/cloudio-ddns
 CHANGES=/var/log/cloudio-ddns/changes.jsonl
 FORCE=${1:-}
+ON_IP_CHANGE={{ ddns_on_ip_change | default('') | quote }}
 
 mkdir -p "$STATE" "$(dirname "$CHANGES")"
 
@@ -52,6 +54,22 @@ vercel() {
 
 # No IP means no uplink: the watchdog owns outages, so that's not an error here.
 ip=$(public_ip) || { echo "no public IP reachable, skipping"; exit 0; }
+
+# The on-change hook keys off its own record of the last IP it acted on, not
+# the DNS state: a Vercel outage shouldn't delay it, nor make it fire every
+# minute until Vercel is back. It doesn't fire on the very first run.
+announced=$(cat "$STATE/hook-ip" 2>/dev/null || true)
+if [ "$ip" != "$announced" ]; then
+  if [ -n "$announced" ] && [ -n "$ON_IP_CHANGE" ]; then
+    if bash -c "$ON_IP_CHANGE"; then
+      echo "public IP $announced -> $ip: on-change hook ran"
+    else
+      echo "public IP $announced -> $ip: on-change hook FAILED, retrying next run" >&2
+      ip_hook_failed=1
+    fi
+  fi
+  [ -z "${ip_hook_failed:-}" ] && printf '%s' "$ip" > "$STATE/hook-ip"
+fi
 
 last=$(cat "$STATE/ip" 2>/dev/null || true)
 if [ "$FORCE" != --force ] && [ "$ip" = "$last" ] && [ -n "$(find "$STATE/ip" -mmin -30 2>/dev/null)" ]; then

@@ -137,6 +137,13 @@ qbittorrent_preferences:
   schedule_to_min: 0
   listen_port: 6881                    # forwarded, TCP and UDP, by the ZTE
   upnp: false
+  file_pool_size: 500                  # open files at once (was 100): a 107-file pack among 30+ torrents
+  # Browser-side protections for the WebUI, on by default and found off. With
+  # CSRF off, any page open in the same browser as a logged-in WebUI could send
+  # it commands, including a program to run on completion. Radarr/Sonarr use
+  # the API without browser headers, so they're unaffected.
+  web_ui_csrf_protection_enabled: true
+  web_ui_clickjacking_protection_enabled: true
 # subdirectories to create on the media drive (inside the container: /data/...)
 # torrents/ is where qBittorrent saves (DefaultSavePath=/data/torrents in its
 # own config); it shares the filesystem with media/ so the *arr apps hardlink
@@ -175,6 +182,13 @@ ddns_record: "jellyfin"
 ddns_ttl: 60                    # Vercel's minimum; how long clients may cache a stale IP
 ddns_check_seconds: 60
 ddns_vercel_team_id: ""         # only if the domain belongs to a Vercel team, not the personal account
+# Run on pve whenever the public IP changes (empty = nothing). Trackers keep
+# handing out the old address until each torrent's next routine announce
+# (30-60 min), and qBittorrent can't notice the change itself from behind
+# Docker and the router; this makes every torrent announce the new one at once.
+ddns_on_ip_change: >-
+  pct exec {{ media_ctid }} -- docker exec qbittorrent
+  curl -sf -X POST --data hashes=all http://localhost:8080/api/v2/torrents/reannounce
 
 # --- 5G/LTE signal + speedtest monitoring ---------------------------------
 # Samples on signal_monitor_on_calendar to signal_log_dir/metrics.jsonl,

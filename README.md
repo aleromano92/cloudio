@@ -197,7 +197,11 @@ needs `chown -R 101000:101000` afterwards.
 - The `ddns` role checks the public IP every minute and updates the A record
   through the Vercel API (`vault_vercel_token`, a token scoped to the Vercel
   team that holds the domain). Every change is logged to
-  `/var/log/cloudio-ddns/changes.jsonl` on `pve`.
+  `/var/log/cloudio-ddns/changes.jsonl` on `pve`. On each change it also runs
+  `ddns_on_ip_change`, which makes qBittorrent re-announce every torrent, since
+  qBittorrent can't see the public IP change from behind Docker and the router.
+  Public torrents re-announce at once; private-tracker ones (ItaTorrents) wait
+  for the tracker's minimum announce interval, which qBittorrent rightly obeys.
 - **Set by hand, not by Ansible:** Jellyfin trusts Caddy as a proxy
   (`KnownProxies` = `127.0.0.1` in `/opt/appdata/jellyfin/config/network.xml`),
   so viewers count as remote rather than local. Also in Jellyfin's dashboard:
@@ -223,7 +227,11 @@ container itself, so no WebUI password is involved. The policy:
 | Download | 10 MiB/s | unlimited |
 
 Every torrent seeds, forever: no queue, no ratio or seeding-time limit, 20
-upload slots per torrent. The weekday cap leaves room for two people on video
+upload slots per torrent, up to 500 files open at once (a 107-file pack sits
+among 30+ torrents). The WebUI's CSRF and clickjacking protections are on:
+they were found off, which would let any page open in the same browser as a
+logged-in WebUI send it commands. Radarr and Sonarr use the API without
+browser headers, so they're unaffected (their connection tests pass). The weekday cap leaves room for two people on video
 calls even on a weak 5G cell (~45 Mbps up). The night cap stays well short of
 the upload so friends' Jellyfin streams keep working, and so the watchdog's
 pings don't fail on a saturated link and trigger a false outage. The SIM is
