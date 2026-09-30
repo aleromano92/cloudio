@@ -1,0 +1,8 @@
+---
+# Off for a container that only needs the LXC itself (e.g. stagista): skips
+# the AppArmor exception Docker needs, the Docker install and the whole
+# compose stack. media and unifi leave it on.
+docker_lxc_with_docker: true
+# Per-container base image; defaults to the repo-wide Debian 12 pin (which
+# exists for UniFi's Java/MongoDB), overridable where that constraint doesn't apply.
+docker_lxc_template_file: "{{ lxc_template_file }}"

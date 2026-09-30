@@ -51,6 +51,7 @@ Static IPs on the infrastructure; DHCP reservations for everything else.
 | `homeassistant` | `192.168.7.11` | `http://192.168.7.11` — **port 80**, not HA's default 8123; `https://home.aleromano.com` from the internet |
 | `media` | `192.168.7.12` | see [Media stack](#media-stack) |
 | `unifi` | `192.168.7.13` | `https://192.168.7.13:8443` |
+| `stagista` | `192.168.7.14` | none: `ssh aromano@192.168.7.14`, or Remote Control from claude.ai/code and the Claude app |
 
 The same addresses work away from home with Tailscale on: `pve` advertises
 `192.168.7.0/24` as a subnet route. That needs IP forwarding on `pve`, set in
@@ -352,6 +353,29 @@ HEVC) needs the render node (`/dev/dri/renderD128`) exposed to the unprivileged
 `/etc/pve/lxc/112.conf`, then uncomment the `devices:` block in
 `media-stack/docker-compose.yaml`. Left disabled in this draft — direct play and
 software transcode work without it. TODO: fold this into the `media_lxc` role.
+
+### stagista (Claude Code on the server)
+
+An LXC (`stagista_lxc` role, Debian 13, no Docker) where Claude Code does the
+coding work, so a session doesn't depend on a laptop staying awake. It holds
+the repos under `~/code` (cloudio included) and its own SSH keys, generated
+inside it and never copied: root on `pve` (authorised by the role), `axel` on
+the Hetzner server, and a GitHub **account** key, since it works on every
+personal repo. The vault password is never stored there; playbooks are still
+run by a person typing it.
+
+- **SSH in** and you land in the persistent tmux session `claude`, running
+  Claude Code in `~/code/cloudio`. Disconnecting leaves it running; the next
+  login reattaches. For a plain shell: `ssh -t aromano@192.168.7.14 NO_TMUX=1 bash -l`.
+- **From the phone or a browser**, the `claude-remote-control` service runs
+  `claude remote-control` in `~/code`: open the Code tab in the Claude app, or
+  claude.ai/code, and start a session there, running on stagista.
+- **Once, by hand, before that service can run:** sign in to Claude, trust
+  `~/code` (`cd ~/code && claude`), and accept the Remote Control prompt
+  (`cd ~/code && claude remote-control`, then Ctrl+C). Claude never remembers
+  trust for a home folder, hence `~/code`. The role enables the service once
+  Claude is signed in and `~/code` trusted; until the Remote Control prompt
+  is accepted, the service exits and retries every 30 s.
 
 ---
 

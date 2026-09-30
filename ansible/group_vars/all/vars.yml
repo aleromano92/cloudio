@@ -59,6 +59,7 @@ backup_guest_ids:
   - "{{ haos_vmid }}"
   - "{{ media_ctid }}"
   - "{{ unifi_ctid }}"
+  - "{{ stagista_ctid }}"
 
 # --- Tailscale ----------------------------------------------------------
 tailscale_advertise_routes: "{{ lan_cidr }}"
@@ -194,6 +195,42 @@ ddns_vercel_team_id: ""         # only if the domain belongs to a Vercel team, n
 ddns_on_ip_change: >-
   pct exec {{ media_ctid }} -- docker exec qbittorrent
   curl -sf -X POST --data hashes=all http://localhost:8080/api/v2/torrents/reannounce
+
+# --- stagista LXC ("the intern": Claude Code for infrastructure work) -------
+# Where Cloudio is worked on, so a session doesn't depend on a laptop staying
+# awake: SSH in (LAN or Tailscale) and you land in a persistent tmux session
+# running Claude Code, signed in with the owner's Claude subscription. It
+# reaches pve over SSH as root, like a laptop would, so it's tidiness and
+# reproducibility, not a security boundary. The vault password is never
+# stored here: playbooks are still run by a human typing it.
+stagista_ctid: 114
+stagista_hostname: "stagista"
+stagista_lxc_cores: 2
+stagista_lxc_memory: 2048
+stagista_lxc_swap: 512
+stagista_lxc_disk_gb: 16
+stagista_lxc_storage: "local-lvm"
+stagista_lxc_bridge: "vmbr0"
+stagista_lxc_ip: "192.168.7.14/24"
+# Debian 13, not the repo-wide 12: nothing here needs UniFi's older Java or
+# MongoDB, and 13's Python runs current Ansible, matching a laptop's.
+stagista_template_file: "debian-13-standard_13.6-1_amd64.tar.zst"
+stagista_user: "aromano"
+# Where the repos live, and where Remote Control sessions start. Not the home
+# folder itself: Claude Code never remembers trust for a home folder, and the
+# Remote Control server has no terminal to ask on.
+stagista_workdir: "/home/{{ stagista_user }}/code"
+stagista_git_name: "Alessandro Romano"
+stagista_git_email: "alessandro.romano1992@gmail.com"
+stagista_repo_https: "https://github.com/aleromano92/cloudio.git"   # public: cloning needs no key
+stagista_repo_ssh: "git@github.com:aleromano92/cloudio.git"        # pushing uses stagista's GitHub account key
+# Public keys allowed to SSH in as stagista_user (public halves only).
+stagista_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFWOlwyVgrOCbpi+5VjpvzEKp0IvG080gKC8x7Fthmu macbook"
+# Hosts it gets its own keys for (generated inside the container, never copied
+# in). Public halves are authorised by hand or by this role (pve).
+stagista_hetzner_host: "188.245.236.17"
+stagista_hetzner_user: "axel"
 
 # --- 5G/LTE signal + speedtest monitoring ---------------------------------
 # Samples on signal_monitor_on_calendar to signal_log_dir/metrics.jsonl,

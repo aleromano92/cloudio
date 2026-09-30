@@ -1,0 +1,269 @@
+---
+# stagista: an LXC where Claude Code does the infrastructure work, so a session
+# lives on the server instead of on a laptop that might sleep. See the
+# stagista_* block in group_vars/all/vars.yml.
+
+- name: Provision the stagista LXC (no Docker)
+  ansible.builtin.import_role:
+    name: docker_lxc
+    allow_duplicates: true
+  vars:
+    docker_lxc_with_docker: false
+    docker_lxc_template_file: "{{ stagista_template_file }}"
+    docker_lxc_ctid: "{{ stagista_ctid }}"
+    docker_lxc_hostname: "{{ stagista_hostname }}"
+    docker_lxc_cores: "{{ stagista_lxc_cores }}"
+    docker_lxc_memory: "{{ stagista_lxc_memory }}"
+    docker_lxc_swap: "{{ stagista_lxc_swap }}"
+    docker_lxc_disk_gb: "{{ stagista_lxc_disk_gb }}"
+    docker_lxc_storage: "{{ stagista_lxc_storage }}"
+    docker_lxc_bridge: "{{ stagista_lxc_bridge }}"
+    docker_lxc_ip: "{{ stagista_lxc_ip }}"
+
+- name: Install the stagista base packages
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - bash
+      - -euc
+      - |
+        export DEBIAN_FRONTEND=noninteractive
+        need=""
+        for p in git tmux curl jq pipx openssh-server sudo ca-certificates locales; do
+          dpkg -s "$p" >/dev/null 2>&1 || need="$need $p"
+        done
+        [ -z "$need" ] && { echo UNCHANGED; exit 0; }
+        apt-get update -q && apt-get install -y -q $need >/dev/null && echo CHANGED
+  register: stagista_packages
+  changed_when: "stagista_packages.stdout | trim == 'CHANGED'"
+
+# Passwordless sudo inside the container: the agent already holds root SSH to
+# the host, so a sudo password here would guard nothing.
+- name: Create the stagista user
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - bash
+      - -euc
+      - |
+        id {{ stagista_user }} >/dev/null 2>&1 && { echo UNCHANGED; exit 0; }
+        useradd -m -s /bin/bash -G sudo {{ stagista_user }}
+        echo CHANGED
+  register: stagista_useradd
+  changed_when: "stagista_useradd.stdout | trim == 'CHANGED'"
+
+# Files inside the container are written through base64, so their content
+# survives every layer of quoting, and only rewritten when they differ.
+- name: Write the stagista config files
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - bash
+      - -euc
+      - |
+        new=$(mktemp)
+        printf '%s' '{{ item.content | b64encode }}' | base64 -d > "$new"
+        mkdir -p "$(dirname '{{ item.path }}')"
+        if [ -f '{{ item.path }}' ] && cmp -s "$new" '{{ item.path }}'; then rm -f "$new"; echo UNCHANGED; exit 0; fi
+        install -m {{ item.mode }} -o {{ item.owner }} -g {{ item.owner }} "$new" '{{ item.path }}'
+        rm -f "$new"
+        echo CHANGED
+  loop:
+    - path: /etc/sudoers.d/stagista
+      content: "{{ stagista_user }} ALL=(ALL) NOPASSWD:ALL\n"
+      mode: "0440"
+      owner: root
+    - path: /etc/ssh/sshd_config.d/stagista.conf
+      content: "# Managed by Ansible: keys only.\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n"
+      mode: "0644"
+      owner: root
+    - path: "/home/{{ stagista_user }}/.ssh/authorized_keys"
+      content: "{{ stagista_authorized_keys | join('\n') }}\n"
+      mode: "0600"
+      owner: "{{ stagista_user }}"
+    - path: "/home/{{ stagista_user }}/.ssh/config"
+      content: "{{ lookup('ansible.builtin.template', 'ssh_config.j2') }}"
+      mode: "0600"
+      owner: "{{ stagista_user }}"
+    - path: "/home/{{ stagista_user }}/.bash_profile"
+      content: "{{ lookup('ansible.builtin.template', 'bash_profile.j2') }}"
+      mode: "0644"
+      owner: "{{ stagista_user }}"
+    - path: "/home/{{ stagista_user }}/.tmux.conf"
+      content: "{{ lookup('ansible.builtin.template', 'tmux.conf.j2') }}"
+      mode: "0644"
+      owner: "{{ stagista_user }}"
+    - path: /etc/systemd/system/claude-remote-control.service
+      content: "{{ lookup('ansible.builtin.template', 'claude-remote-control.service.j2') }}"
+      mode: "0644"
+      owner: root
+  loop_control:
+    label: "{{ item.path }}"
+  register: stagista_files
+  changed_when: "stagista_files.stdout | trim == 'CHANGED'"
+
+# Debian 13's template starts sshd per connection from ssh.socket, and each one
+# reads the config afresh; only a long-running ssh.service needs a reload.
+- name: Reload sshd after a config change
+  ansible.builtin.command: >-
+    pct exec {{ stagista_ctid }} -- bash -c
+    'systemctl reset-failed ssh.service; if systemctl is-active --quiet ssh.service; then systemctl reload ssh.service; fi'
+  when: stagista_files.results | selectattr('item.path', 'equalto', '/etc/ssh/sshd_config.d/stagista.conf') | selectattr('changed') | list | length > 0
+
+- name: Fix ownership of the stagista user's .ssh directory
+  ansible.builtin.command: "pct exec {{ stagista_ctid }} -- bash -c 'chown {{ stagista_user }}: /home/{{ stagista_user }}/.ssh && chmod 700 /home/{{ stagista_user }}/.ssh'"
+  changed_when: false
+
+# One key per destination, generated here: the private halves never leave the
+# container, and each can be revoked without touching any other machine.
+- name: Generate stagista's SSH keys
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - su
+      - "-"
+      - "{{ stagista_user }}"
+      - -c
+      - |
+        set -e
+        made=""
+        for k in pve github hetzner; do
+          f=~/.ssh/id_ed25519_$k
+          [ -f "$f" ] && continue
+          ssh-keygen -q -t ed25519 -N "" -C "stagista-$k" -f "$f"
+          made="$made $k"
+        done
+        [ -n "$made" ] && echo "CHANGED$made" || echo UNCHANGED
+  register: stagista_keys
+  changed_when: "stagista_keys.stdout.startswith('CHANGED')"
+
+- name: Read stagista's public keys
+  ansible.builtin.command: "pct exec {{ stagista_ctid }} -- cat /home/{{ stagista_user }}/.ssh/id_ed25519_{{ item }}.pub"
+  loop: [pve, github, hetzner]
+  register: stagista_pubkeys
+  changed_when: false
+
+- name: Let stagista SSH into pve as root
+  ansible.posix.authorized_key:
+    user: root
+    key: "{{ (stagista_pubkeys.results | selectattr('item', 'equalto', 'pve') | first).stdout }}"
+    state: present
+
+- name: Install Claude Code for the stagista user
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - su
+      - "-"
+      - "{{ stagista_user }}"
+      - -c
+      - |
+        [ -x ~/.local/bin/claude ] && { echo UNCHANGED; exit 0; }
+        curl -fsSL https://claude.ai/install.sh | bash >/dev/null && echo CHANGED
+  register: stagista_claude
+  changed_when: "stagista_claude.stdout | trim == 'CHANGED'"
+
+# pipx rather than Debian's package: Debian's Ansible lags, and the playbooks
+# are written against the current release, as run from a laptop.
+- name: Install Ansible for the stagista user
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - su
+      - "-"
+      - "{{ stagista_user }}"
+      - -c
+      - |
+        [ -x ~/.local/bin/ansible-playbook ] && { echo UNCHANGED; exit 0; }
+        pipx install --include-deps ansible >/dev/null && echo CHANGED
+  register: stagista_ansible
+  changed_when: "stagista_ansible.stdout | trim == 'CHANGED'"
+
+# Cloned over HTTPS (the repo is public, so no key is needed to read it);
+# pushes go over SSH with stagista's GitHub key, which must be added first.
+- name: Clone the cloudio repo and push over SSH
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - su
+      - "-"
+      - "{{ stagista_user }}"
+      - -c
+      - |
+        set -e
+        changed=UNCHANGED
+        w={{ stagista_workdir }}
+        mkdir -p "$w"
+        # the first build cloned into ~/cloudio, before the workdir existed
+        if [ -d ~/cloudio/.git ] && [ ! -e "$w/cloudio" ]; then mv ~/cloudio "$w/cloudio"; changed=CHANGED; fi
+        if [ ! -d "$w/cloudio/.git" ]; then git clone -q {{ stagista_repo_https }} "$w/cloudio"; changed=CHANGED; fi
+        cd "$w/cloudio"
+        git remote set-url --push origin {{ stagista_repo_ssh }}
+        git config user.name "{{ stagista_git_name }}"
+        git config user.email "{{ stagista_git_email }}"
+        (cd ansible && ~/.local/bin/ansible-galaxy collection install -r requirements.yml >/dev/null)
+        echo $changed
+  register: stagista_repo
+  changed_when: "stagista_repo.stdout | trim == 'CHANGED'"
+
+# Started only once Claude is signed in and the home folder trusted, both
+# steps for a person at the terminal; before that it would only crash-loop.
+- name: Run the Remote Control server when Claude is ready
+  ansible.builtin.command:
+    argv:
+      - pct
+      - exec
+      - "{{ stagista_ctid | string }}"
+      - --
+      - bash
+      - -euc
+      - |
+        u={{ stagista_user }}
+        systemctl daemon-reload
+        ready=$(su - "$u" -c 'NO_TMUX=1 claude auth status 2>/dev/null' | jq -r .loggedIn 2>/dev/null || true)
+        trusted=$(jq -r --arg d "{{ stagista_workdir }}" '.projects[$d].hasTrustDialogAccepted // false' "/home/$u/.claude.json" 2>/dev/null || true)
+        if [ "$ready" != true ] || [ "$trusted" != true ]; then echo NOT_READY; exit 0; fi
+        if systemctl is-enabled --quiet claude-remote-control && systemctl is-active --quiet claude-remote-control; then
+          echo UNCHANGED
+        else
+          systemctl enable --now claude-remote-control >/dev/null && echo CHANGED
+        fi
+  register: stagista_rc
+  changed_when: "stagista_rc.stdout | trim == 'CHANGED'"
+
+- name: Restart the Remote Control server after its unit changed
+  ansible.builtin.command: "pct exec {{ stagista_ctid }} -- systemctl restart claude-remote-control"
+  when:
+    - stagista_rc.stdout | trim == 'UNCHANGED'
+    - stagista_files.results | selectattr('item.path', 'equalto', '/etc/systemd/system/claude-remote-control.service') | selectattr('changed') | list | length > 0
+
+- name: Keys to authorise by hand
+  ansible.builtin.debug:
+    msg:
+      - "GitHub > Settings > SSH and GPG keys > New SSH key (an account key: stagista works on every personal repo):"
+      - "{{ (stagista_pubkeys.results | selectattr('item', 'equalto', 'github') | first).stdout }}"
+      - "Hetzner {{ stagista_hetzner_user }}@{{ stagista_hetzner_host }} ~/.ssh/authorized_keys:"
+      - "{{ (stagista_pubkeys.results | selectattr('item', 'equalto', 'hetzner') | first).stdout }}"
+      - "Then: ssh {{ stagista_user }}@{{ stagista_lxc_ip | regex_replace('/.*', '') }} and sign in to Claude once."
+      - "Remote Control: {{ 'running' if stagista_rc.stdout | trim != 'NOT_READY' else 'waiting. Sign in to Claude, run `cd {{ stagista_workdir }} && claude` once and trust the folder, then re-run this playbook.' }}"

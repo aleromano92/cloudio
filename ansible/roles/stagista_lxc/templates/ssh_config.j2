@@ -1,0 +1,22 @@
+# Managed by Ansible (stagista_lxc role). One key per destination, each
+# generated here and never copied in, so any one can be revoked on its own.
+
+Host pve {{ pve_ip }}
+    HostName {{ pve_ip }}
+    User root
+    IdentityFile ~/.ssh/id_ed25519_pve
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host github.com
+    User git
+    IdentityFile ~/.ssh/id_ed25519_github
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new
+
+Host axel.hetzner
+    HostName {{ stagista_hetzner_host }}
+    User {{ stagista_hetzner_user }}
+    IdentityFile ~/.ssh/id_ed25519_hetzner
+    IdentitiesOnly yes
+    StrictHostKeyChecking accept-new

@@ -1,0 +1,20 @@
+# Managed by Ansible (stagista_lxc role).
+# A standing Claude Code server: from claude.ai/code or the Claude app, open
+# a session on stagista, working in {{ stagista_workdir }} (cloudio and any
+# other repo cloned next to it). Needs Claude signed in and that folder trusted,
+# both done once by hand; until then the role leaves this disabled.
+[Unit]
+Description=Claude Code Remote Control server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User={{ stagista_user }}
+WorkingDirectory={{ stagista_workdir }}
+Environment=PATH=/home/{{ stagista_user }}/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/{{ stagista_user }}/.local/bin/claude remote-control
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

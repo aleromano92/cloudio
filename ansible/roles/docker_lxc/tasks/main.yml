@@ -5,12 +5,12 @@
 
 - name: Ensure the LXC template is downloaded
   ansible.builtin.command:
-    cmd: "pveam download {{ lxc_template_storage }} {{ lxc_template_file }}"
-    creates: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+    cmd: "pveam download {{ lxc_template_storage }} {{ docker_lxc_template_file }}"
+    creates: "/var/lib/vz/template/cache/{{ docker_lxc_template_file }}"
 
 - name: Verify the template actually landed on disk
   ansible.builtin.stat:
-    path: "/var/lib/vz/template/cache/{{ lxc_template_file }}"
+    path: "/var/lib/vz/template/cache/{{ docker_lxc_template_file }}"
   register: docker_lxc_template_stat
   failed_when: >-
     not docker_lxc_template_stat.stat.exists or docker_lxc_template_stat.stat.size < 1000000
@@ -28,7 +28,7 @@
 - name: Create the {{ docker_lxc_hostname }} LXC
   ansible.builtin.command:
     cmd: >-
-      pct create {{ docker_lxc_ctid }} {{ lxc_template_storage }}:vztmpl/{{ lxc_template_file }}
+      pct create {{ docker_lxc_ctid }} {{ lxc_template_storage }}:vztmpl/{{ docker_lxc_template_file }}
       --hostname {{ docker_lxc_hostname }}
       --cores {{ docker_lxc_cores }}
       --memory {{ docker_lxc_memory }}
@@ -80,6 +80,7 @@
   # running container in place but can never shrink one, so this only grows.
 
 - name: Allow Docker's overlay filesystem inside the {{ docker_lxc_hostname }} LXC
+  when: docker_lxc_with_docker | bool
   ansible.builtin.lineinfile:
     path: "/etc/pve/lxc/{{ docker_lxc_ctid }}.conf"
     line: "lxc.apparmor.profile: unconfined"
@@ -112,6 +113,7 @@
   changed_when: false
 
 - name: Install Docker inside the {{ docker_lxc_hostname }} LXC
+  when: docker_lxc_with_docker | bool
   ansible.builtin.shell:
     cmd: |
       pct exec {{ docker_lxc_ctid }} -- bash -euc '
@@ -132,17 +134,20 @@
   changed_when: "'Setting up docker-ce ' in docker_lxc_docker.stdout"
 
 - name: Create the stack directories in the {{ docker_lxc_hostname }} LXC
+  when: docker_lxc_with_docker | bool
   ansible.builtin.command:
     argv: "{{ ['pct', 'exec', docker_lxc_ctid | string, '--', 'mkdir', '-p', docker_lxc_stack_dir] + docker_lxc_dirs | default([]) }}"
   changed_when: false
 
 - name: Render the {{ docker_lxc_hostname }} stack .env on the node
+  when: docker_lxc_with_docker | bool
   ansible.builtin.template:
     src: "{{ docker_lxc_env_template }}"
     dest: "/root/.cloudio-{{ docker_lxc_hostname }}.env"
     mode: "0600"
 
 - name: Copy the {{ docker_lxc_hostname }} stack files to the node
+  when: docker_lxc_with_docker | bool
   ansible.builtin.copy:
     src: "{{ item.src }}"
     dest: "/root/.cloudio-{{ docker_lxc_hostname }}-{{ item.name }}"
@@ -154,6 +159,7 @@
   # control-node path there fails silently (prints an error, exits 0).
 
 - name: Push the {{ docker_lxc_hostname }} stack files into the container
+  when: docker_lxc_with_docker | bool
   ansible.builtin.command:
     cmd: >-
       pct push {{ docker_lxc_ctid }}
@@ -165,11 +171,13 @@
   changed_when: true
 
 - name: Push the {{ docker_lxc_hostname }} .env into the container
+  when: docker_lxc_with_docker | bool
   ansible.builtin.command:
     cmd: "pct push {{ docker_lxc_ctid }} /root/.cloudio-{{ docker_lxc_hostname }}.env {{ docker_lxc_stack_dir }}/.env --perms 0600"
   changed_when: true
 
 - name: Bring up the {{ docker_lxc_hostname }} stack
+  when: docker_lxc_with_docker | bool
   ansible.builtin.command:
     cmd: >-
       pct exec {{ docker_lxc_ctid }} -- bash -c
