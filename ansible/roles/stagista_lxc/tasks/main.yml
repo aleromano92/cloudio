@@ -78,6 +78,12 @@
         rm -f "$new"
         echo CHANGED
   loop:
+    # The template ships LANG=C, and under a non-UTF-8 locale tmux shows every
+    # non-ASCII character (Claude Code's whole interface) as "_".
+    - path: /etc/default/locale
+      content: "LANG=\"C.UTF-8\"\n"
+      mode: "0644"
+      owner: root
     - path: /etc/sudoers.d/stagista
       content: "{{ stagista_user }} ALL=(ALL) NOPASSWD:ALL\n"
       mode: "0440"
@@ -97,6 +103,10 @@
     - path: "/home/{{ stagista_user }}/.bash_profile"
       content: "{{ lookup('ansible.builtin.template', 'bash_profile.j2') }}"
       mode: "0644"
+      owner: "{{ stagista_user }}"
+    - path: "/home/{{ stagista_user }}/.local/bin/proj"
+      content: "{{ lookup('ansible.builtin.template', 'proj.j2') }}"
+      mode: "0755"
       owner: "{{ stagista_user }}"
     - path: "/home/{{ stagista_user }}/.tmux.conf"
       content: "{{ lookup('ansible.builtin.template', 'tmux.conf.j2') }}"
