@@ -1,7 +1,7 @@
 #!/bin/bash
 # Managed by Ansible (ddns role). Runs every {{ ddns_check_seconds }}s from cloudio-ddns.timer.
 #
-# Keeps {{ ddns_record }}.{{ ddns_domain }} pointing at this house's public IPv4,
+# Keeps {{ ddns_records | join(', ') }} (under {{ ddns_domain }}) pointing at this house's public IPv4,
 # which the 5G operator changes several times a day, through the Vercel DNS API
 # ({{ ddns_domain }}'s DNS is hosted there). Only the IP ever leaves the house:
 # streams go direct, and HTTPS terminates here.
@@ -16,7 +16,7 @@ set -uo pipefail
 . /etc/cloudio-ddns.env
 
 DOMAIN="{{ ddns_domain }}"
-NAME="{{ ddns_record }}"
+NAMES=({{ ddns_records | join(" ") }})
 TTL={{ ddns_ttl }}
 TEAM="{{ ddns_vercel_team_id }}"
 API=https://api.vercel.com
@@ -80,27 +80,38 @@ if ! records=$(vercel GET "/v4/domains/$DOMAIN/records?limit=100$(team_query '&'
   echo "Vercel refused to list $DOMAIN records (token, scope or team id?): $records" >&2
   exit 1
 fi
-read -r id current <<<"$(printf '%s' "$records" | jq -r --arg n "$NAME" \
-  '[.records[] | select(.name == $n and .type == "A")][0] // empty | "\(.id) \(.value)"')"
+# Every name is brought to the same IP. One failing doesn't stop the others,
+# but the IP isn't recorded as done, so the next run retries them all.
+failed=0
+for name in "${NAMES[@]}"; do
+  id='' current=''
+  read -r id current <<<"$(printf '%s' "$records" | jq -r --arg n "$name" \
+    '[.records[] | select(.name == $n and .type == "A")][0] // empty | "\(.id) \(.value)"')"
 
-if [ -n "${id:-}" ] && [ "$current" = "$ip" ]; then
-  action=unchanged
-elif [ -n "${id:-}" ]; then
-  body=$(jq -nc --arg v "$ip" --argjson t "$TTL" '{value: $v, ttl: $t}')
-  vercel PATCH "/v1/domains/records/$id$(team_query '?')" "$body" >/dev/null \
-    || { echo "Vercel refused the update of $NAME.$DOMAIN" >&2; exit 1; }
-  action=updated
-else
-  body=$(jq -nc --arg n "$NAME" --arg v "$ip" --argjson t "$TTL" \
-    '{name: $n, type: "A", value: $v, ttl: $t, comment: "cloudio ddns, managed by pve"}')
-  vercel POST "/v2/domains/$DOMAIN/records$(team_query '?')" "$body" >/dev/null \
-    || { echo "Vercel refused to create $NAME.$DOMAIN" >&2; exit 1; }
-  action=created
-fi
+  if [ -n "$id" ] && [ "$current" = "$ip" ]; then
+    action=unchanged
+  elif [ -n "$id" ]; then
+    body=$(jq -nc --arg v "$ip" --argjson t "$TTL" '{value: $v, ttl: $t}')
+    if ! vercel PATCH "/v1/domains/records/$id$(team_query '?')" "$body" >/dev/null; then
+      echo "Vercel refused the update of $name.$DOMAIN" >&2; failed=1; continue
+    fi
+    action=updated
+  else
+    body=$(jq -nc --arg n "$name" --arg v "$ip" --argjson t "$TTL" \
+      '{name: $n, type: "A", value: $v, ttl: $t, comment: "cloudio ddns, managed by pve"}')
+    if ! vercel POST "/v2/domains/$DOMAIN/records$(team_query '?')" "$body" >/dev/null; then
+      echo "Vercel refused to create $name.$DOMAIN" >&2; failed=1; continue
+    fi
+    action=created
+  fi
 
+  if [ "$action" != unchanged ]; then
+    jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg n "$name" --arg a "$action" \
+      --arg from "$current" --arg to "$ip" \
+      '{timestamp: $ts, name: $n, action: $a, from: $from, to: $to}' >> "$CHANGES"
+  fi
+  echo "$name.$DOMAIN $action -> $ip"
+done
+
+[ "$failed" = 0 ] || exit 1
 printf '%s' "$ip" > "$STATE/ip"
-if [ "$action" != unchanged ]; then
-  jq -nc --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg a "$action" --arg from "${current:-}" --arg to "$ip" \
-    '{timestamp: $ts, action: $a, from: $from, to: $to}' >> "$CHANGES"
-fi
-echo "$NAME.$DOMAIN $action -> $ip"

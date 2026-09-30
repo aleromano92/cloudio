@@ -48,7 +48,7 @@ Static IPs on the infrastructure; DHCP reservations for everything else.
 | Host | IP | Web UI |
 |---|---|---|
 | `pve` | `192.168.7.10` | Proxmox `https://192.168.7.10:8006`, signal dashboard `http://192.168.7.10:8420` |
-| `homeassistant` | `192.168.7.11` | `http://192.168.7.11` — **port 80**, not HA's default 8123 |
+| `homeassistant` | `192.168.7.11` | `http://192.168.7.11` — **port 80**, not HA's default 8123; `https://home.aleromano.com` from the internet |
 | `media` | `192.168.7.12` | see [Media stack](#media-stack) |
 | `unifi` | `192.168.7.13` | `https://192.168.7.13:8443` |
 
@@ -85,7 +85,7 @@ cloudio/
 │       ├── media_lxc/          # pct create, install Docker, deploy the compose stack
 │       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
 │       ├── signal_monitor/     # 5G signal + speedtest sampling, band scheduling, uplink watchdog
-│       └── ddns/               # keeps jellyfin.aleromano.com pointing at the home IP (Vercel DNS)
+│       └── ddns/               # keeps jellyfin. and home.aleromano.com pointing at the home IP (Vercel DNS)
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
 │   ├── Caddyfile               # HTTPS for Jellyfin, certificate kept at home
@@ -212,6 +212,18 @@ needs `chown -R 101000:101000` afterwards.
   the LAN.
 - Jellyfin runs on host networking, so LAN discovery (7359/udp) and DLNA
   (1900/udp) work and it sees clients' real addresses.
+
+**Home Assistant from the internet** (why and how: [ADR-0011](docs/adr/0011-home-assistant-served-to-the-internet-from-home.md)):
+the same Caddy also serves `home.aleromano.com` and proxies it to the HAOS VM,
+for the family's Companion apps. Nothing else is forwarded for it.
+- **Set by hand, not by Ansible:** HA trusts only `192.168.7.12` as its proxy
+  and bans an address after 5 failed logins. Since 2026.9 these live in HA's
+  `.storage/http`; an `http:` block in `configuration.yaml` is ignored.
+  Unban by deleting the address from `ip_bans.yaml` and restarting HA.
+- Every account has two-factor login on; family members are non-administrators.
+- **In the Companion app**, set the internal URL `http://192.168.7.11` with the
+  home Wi-Fi name, and the external URL `https://home.aleromano.com`: with no
+  hairpin on the ZTE, the public name doesn't connect from the LAN.
 
 **qBittorrent** listens on 6881, forwarded (TCP and UDP) by the ZTE so peers can
 connect to it. Its settings are code: `qbittorrent_preferences` in `vars.yml`,
@@ -359,12 +371,14 @@ not backed up.
 ## Remote access
 
 Tailscale on the node, the laptop, and phones, for everything administrative:
-Proxmox, Home Assistant, UniFi, the *arr apps and qBittorrent (ADR-0006).
+Proxmox, UniFi, the *arr apps and qBittorrent (ADR-0006).
 
 **Two exceptions are port-forwarded on the ZTE**, both to the `media` LXC: TCP
-443 for Jellyfin at `https://jellyfin.aleromano.com`, so friends can watch
-without a VPN client, and TCP+UDP 6881 for qBittorrent to seed. The public IP
-changes several times a day, which the `ddns` role follows (ADR-0010).
+443, where Caddy serves Jellyfin at `https://jellyfin.aleromano.com` so friends
+can watch without a VPN client, and Home Assistant at
+`https://home.aleromano.com` for the family's Companion apps; and TCP+UDP 6881
+for qBittorrent to seed. The public IP changes several times a day, which the
+`ddns` role follows (ADR-0010, ADR-0011).
 
 ---
 

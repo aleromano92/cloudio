@@ -44,10 +44,10 @@
 
 # Runs the real thing once, so a wrong token, scope or team id fails the
 # playbook here instead of silently failing every minute afterwards.
-- name: Point {{ ddns_record }}.{{ ddns_domain }} at the current home IP
+- name: Point the {{ ddns_domain }} names at the current home IP
   ansible.builtin.command: /usr/local/sbin/cloudio-ddns.sh --force
   register: ddns_first_run
-  changed_when: "'unchanged' not in ddns_first_run.stdout"
+  changed_when: ddns_first_run.stdout is search(' (created|updated) -> ')
   when: ddns_enabled
 
 - name: Enable the dynamic DNS timer

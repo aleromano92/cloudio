@@ -3,6 +3,7 @@
 Supersedes ADR-0006 **for Jellyfin only**. Friends who won't install a VPN client
 need to watch, which is exactly the "real need" ADR-0006 anticipated. Everything
 else (admin UIs, the *arr apps, Proxmox, Home Assistant) stays Tailscale-only.
+(Home Assistant was later added the same way: ADR-0011.)
 
 **Decision.** The ZTE forwards **TCP 443** to the `media` LXC, where Caddy
 terminates HTTPS for `jellyfin.aleromano.com` and proxies to Jellyfin. The

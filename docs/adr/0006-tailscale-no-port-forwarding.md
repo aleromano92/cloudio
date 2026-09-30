@@ -2,6 +2,8 @@
 
 > **Superseded for Jellyfin by [ADR-0010](0010-jellyfin-served-to-the-internet-from-home.md)**
 > (2026-09-26): TCP 443 and TCP+UDP 6881 are now forwarded to the `media` LXC.
+> Home Assistant followed on 2026-09-30 through the same port
+> ([ADR-0011](0011-home-assistant-served-to-the-internet-from-home.md)).
 > Everything else below still holds for every other service.
 
 The 5G SIM has a publicly-routable IP with no CGNAT, so public port-forwarding is

@@ -1,5 +1,5 @@
 [Unit]
-Description=cloudio dynamic DNS ({{ ddns_record }}.{{ ddns_domain }} -> home IP)
+Description=cloudio dynamic DNS ({{ ddns_records | join(', ') }} under {{ ddns_domain }} -> home IP)
 Wants=network-online.target
 After=network-online.target
 

@@ -104,9 +104,13 @@ media_appdata_services:
   - qbittorrent
   - jellyfin
   - caddy
-# The name friends use; the ddns role keeps it pointing at the home IP, and
-# Caddy serves Jellyfin's HTTPS under it.
-jellyfin_public_host: "{{ ddns_record }}.{{ ddns_domain }}"
+# Public names Caddy serves HTTPS under; the ddns role keeps every name in
+# ddns_records pointing at the home IP. Jellyfin is for friends; Home Assistant
+# is for the family's Companion apps, and is proxied to the HAOS VM (which is
+# on port 80, not 8123).
+jellyfin_public_host: "jellyfin.{{ ddns_domain }}"
+ha_public_host: "home.{{ ddns_domain }}"
+ha_upstream: "192.168.7.11:80"
 # qBittorrent settings, applied through its web API after every deploy by
 # media-stack/qbittorrent-configure.py, so a rebuilt container comes back
 # configured the same way (its own config file is rewritten on every exit, so
@@ -173,12 +177,13 @@ unifi_mongo_authsource: "admin"
 
 # --- Dynamic DNS ------------------------------------------------------------
 # The 5G operator changes the home IP several times a day. A job on pve keeps
-# ddns_record.ddns_domain pointing at it through the Vercel DNS API (the
-# domain's DNS is hosted on Vercel). Streams go straight from home and HTTPS
-# terminates here: the DNS host only ever learns the IP. Needs vault_vercel_token.
+# every name in ddns_records (under ddns_domain) pointing at it through the
+# Vercel DNS API (the domain's DNS is hosted on Vercel). Streams go straight
+# from home and HTTPS terminates here: the DNS host only ever learns the IP.
+# Needs vault_vercel_token.
 ddns_enabled: true
 ddns_domain: "aleromano.com"
-ddns_record: "jellyfin"
+ddns_records: ["jellyfin", "home"]   # all A records, all set to the same IP
 ddns_ttl: 60                    # Vercel's minimum; how long clients may cache a stale IP
 ddns_check_seconds: 60
 ddns_vercel_team_id: ""         # only if the domain belongs to a Vercel team, not the personal account
