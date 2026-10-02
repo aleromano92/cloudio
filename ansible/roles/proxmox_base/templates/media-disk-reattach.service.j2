@@ -1,0 +1,8 @@
+[Unit]
+Description=Remount the media drive and refresh the media LXC after the drive reappears
+# At boot, let fstab mount the drive first so the script sees it mounted.
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/media-disk-reattach.sh

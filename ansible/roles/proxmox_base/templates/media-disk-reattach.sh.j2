@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Managed by Ansible (proxmox_base/usb_media_mount.yml).
+#
+# Run by media-disk-reattach.service whenever udev sees the media drive appear.
+# When the drive drops off USB (power cut, loose cable) and comes back, nothing
+# remounts it, and the media LXC keeps its bind mount of the dead filesystem:
+# every read inside it fails with "Input/output error". This puts things back:
+#
+# 1. not mounted on the host -> replay the journal / fsck -p, then mount it
+# 2. media LXC running but /data unreadable -> reboot it to pick up the mount
+#
+# At boot it finds the drive already mounted and the LXC healthy (or not yet
+# started), so it does nothing.
+set -uo pipefail
+
+DEV="/dev/disk/by-uuid/{{ media_disk_uuid }}"
+MNT="{{ media_disk_mount }}"
+CT="{{ media_ctid }}"
+
+if ! mountpoint -q "$MNT"; then
+  echo "$MNT not mounted; checking $DEV"
+  fsck.ext4 -p "$DEV"
+  rc=$?
+  # 0 clean, 1 errors fixed; anything else needs a human
+  if [ "$rc" -gt 1 ]; then
+    echo "fsck.ext4 -p exited $rc; leaving $MNT unmounted. Run fsck by hand." >&2
+    exit 1
+  fi
+  mount "$MNT" || exit 1
+  echo "mounted $MNT"
+fi
+
+if [ "$(pct status "$CT")" = "status: running" ] \
+   && ! timeout 30 pct exec "$CT" -- ls /data/media >/dev/null 2>&1; then
+  echo "CT $CT cannot read /data; rebooting it"
+  pct reboot "$CT"
+fi

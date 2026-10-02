@@ -185,6 +185,14 @@ in a single run, since rsync can only see that two names are one file within
 one invocation. Formatted with no reserved blocks (`-m 0`, which would
 otherwise waste ~800 GB) and one inode per MB (`-T largefile`).
 
+**If the drive drops off.** The laptop rides out a power cut on its battery;
+the drive does not. When it comes back, a udev rule runs
+`media-disk-reattach.service` on the host: it `fsck -p`s and remounts
+`/mnt/media`, then reboots the `media` LXC if `/data` there is unreadable
+(the LXC otherwise keeps the dead mount and Jellyfin fails with "Input/output
+error"). Its log: `journalctl -u media-disk-reattach`. If fsck needs a human,
+it leaves the drive unmounted and says so there.
+
 **Ownership.** The container is unprivileged, so its user 1000 (the stack's
 `PUID`) is user **101000** on the host, and the container's own root has no
 rights over the drive at all. The role therefore creates the drive's folders

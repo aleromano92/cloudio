@@ -1,0 +1,3 @@
+# Managed by Ansible (proxmox_base/usb_media_mount.yml).
+# When the media drive's filesystem appears, run media-disk-reattach.service.
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="{{ media_disk_uuid }}", TAG+="systemd", ENV{SYSTEMD_WANTS}+="media-disk-reattach.service"

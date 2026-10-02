@@ -6,6 +6,9 @@
   ansible.builtin.systemd:
     daemon_reload: true
 
+- name: reload udev rules
+  ansible.builtin.command: udevadm control --reload
+
 - name: restart pveproxy
   ansible.builtin.systemd:
     name: pveproxy
