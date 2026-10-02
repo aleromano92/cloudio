@@ -2,3 +2,8 @@
 set -g mouse on
 set -g history-limit 100000
 set -g default-terminal "tmux-256color"
+
+# Copy to the local (Mac) clipboard over SSH via OSC 52.
+set -s set-clipboard on
+set -as terminal-features ',*:clipboard'
+set -g allow-passthrough on

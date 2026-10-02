@@ -364,9 +364,12 @@ the Hetzner server, and a GitHub **account** key, since it works on every
 personal repo. The vault password is never stored there; playbooks are still
 run by a person typing it.
 
-- **SSH in** and you land in the persistent tmux session `claude`, running
+- **SSH in** and you land in the persistent tmux session `cloudio`, running
   Claude Code in `~/code/cloudio`. Disconnecting leaves it running; the next
   login reattaches. For a plain shell: `ssh -t aromano@192.168.7.14 NO_TMUX=1 bash -l`.
+- **Other repos** in `~/code` each get their own session with `proj <folder>`:
+  `ssh -t aromano@192.168.7.14 '~/.local/bin/proj aleromano.com'`, or run
+  `proj <folder>` inside tmux to switch. `proj` alone lists sessions and folders.
 - **From the phone or a browser**, the `claude-remote-control` service runs
   `claude remote-control` in `~/code`: open the Code tab in the Claude app, or
   claude.ai/code, and start a session there, running on stagista.

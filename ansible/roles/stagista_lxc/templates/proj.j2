@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Managed by Ansible (stagista_lxc role).
+# proj <folder>: one persistent tmux session per repo in {{ stagista_workdir }},
+# running Claude Code there. Creates it on first use, reattaches after.
+#   proj            list the sessions and the folders
+#   proj <folder>   attach (or switch, from inside tmux) to that folder's session
+set -eu
+export PATH="$HOME/.local/bin:$PATH"
+workdir={{ stagista_workdir }}
+
+if [ $# -eq 0 ]; then
+    echo "Sessions:"; tmux ls 2>/dev/null | sed 's/^/  /' || echo "  (none)"
+    echo "Folders:";  ls -1 "$workdir" | sed 's/^/  /'
+    exit 0
+fi
+
+dir="$workdir/$1"
+[ -d "$dir" ] || { echo "proj: no folder $dir" >&2; exit 1; }
+# tmux turns dots in session names into underscores; do it up front so
+# lookups match (aleromano.com -> aleromano_com).
+name=${1//./_}
+
+# tmux refuses unknown terminals (e.g. xterm-ghostty); fall back to a
+# terminfo we know exists rather than failing the login.
+infocmp "$TERM" >/dev/null 2>&1 || export TERM=xterm-256color
+
+if [ -n "${TMUX:-}" ]; then
+    tmux has-session -t "=$name" 2>/dev/null ||
+        tmux new-session -d -s "$name" -c "$dir" "claude; exec bash -l"
+    exec tmux switch-client -t "=$name"
+fi
+exec tmux new-session -A -s "$name" -c "$dir" "claude; exec bash -l"
