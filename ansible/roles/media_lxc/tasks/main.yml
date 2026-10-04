@@ -40,6 +40,7 @@
       - { src: "{{ playbook_dir }}/../media-stack/docker-compose.yaml", name: docker-compose.yaml, mode: "0644" }
       - { src: "{{ playbook_dir }}/../media-stack/Caddyfile", name: Caddyfile, mode: "0644" }
       - { src: "{{ playbook_dir }}/../media-stack/qbittorrent-configure.py", name: qbittorrent-configure.py, mode: "0755" }
+      - { src: "{{ playbook_dir }}/../media-stack/arr-autoimport.py", name: arr-autoimport.py, mode: "0644" }
 
 # qBittorrent rewrites its own config file on every exit, so its settings are
 # applied through its web API instead, from qbittorrent_preferences in vars.yml.

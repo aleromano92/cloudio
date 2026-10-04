@@ -123,3 +123,23 @@ services:
       - "6881:6881"
       - "6881:6881/udp"
     restart: unless-stopped
+
+  # Imports the finished downloads Radarr and Sonarr can't match by name
+  # (Italian titles, "ROGUE CUT" and the like); see arr-autoimport.py. Reads
+  # their API keys from their config.xml, read-only. Logs: docker logs arr-autoimport
+  arr-autoimport:
+    image: python:3.13-alpine
+    container_name: arr-autoimport
+    user: "${PUID}:${PGID}"
+    environment:
+      - TZ=${TZ}
+      - PYTHONUNBUFFERED=1
+    command: ["python3", "/app/arr-autoimport.py"]
+    volumes:
+      - ./arr-autoimport.py:/app/arr-autoimport.py:ro
+      - ${APPDATA}/radarr/config.xml:/config/radarr/config.xml:ro
+      - ${APPDATA}/sonarr/config.xml:/config/sonarr/config.xml:ro
+    depends_on:
+      - radarr
+      - sonarr
+    restart: unless-stopped

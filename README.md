@@ -219,6 +219,16 @@ in a single run, since rsync can only see that two names are one file within
 one invocation. Formatted with no reserved blocks (`-m 0`, which would
 otherwise waste ~800 GB) and one inode per MB (`-T largefile`).
 
+**Releases with Italian names import themselves.** Radarr and Sonarr watch
+qBittorrent's `movies` and `tv` categories, but a hand-picked release such as
+"X-Men - Giorni di un Futuro Passato - ROGUE CUT (2014)" parses to a title
+neither knows and waits as "manual import required". The `arr-autoimport`
+container (`media-stack/arr-autoimport.py`) checks both queues every 2 minutes,
+strips edition words, finds the film or series in the library (or on
+TMDB/TVDB, adding it unmonitored) and imports it with hardlinks, so seeding
+continues. It only replaces a file with a higher-resolution one and never
+monitors or searches. Its log: `docker logs arr-autoimport`.
+
 **If the drive drops off.** The laptop rides out a power cut on its battery;
 the drive does not. When it comes back, a udev rule runs
 `media-disk-reattach.service` on the host: it `fsck -p`s and remounts
