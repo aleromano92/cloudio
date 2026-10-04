@@ -150,6 +150,26 @@ Re-running is safe (idempotent). Ansible drives the native `pct` / `qm` /
 `docker compose` CLIs directly — there is no Terraform and no state file; "does
 reality match the repo?" is answered by re-running the playbook (see ADR-0003).
 
+### Power cuts
+
+The laptop rides out a power cut on its own battery (88 minutes on
+2026-10-04, battery at about half its design capacity); the Wildix switch does
+not, so the guests lose the network at once. `cloudio-power-watch.service` on
+the host watches the adapter: after `power_watch_grace_minutes` (10) on
+battery, or once the battery is down to `power_watch_min_battery` (30%), it
+shuts every guest down cleanly (`pvesh create /nodes/pve/stopall`). The host
+stays up on purpose: a laptop that was powered off stays off when mains comes
+back, while one whose battery ran flat boots by itself and starts the onboot
+guests. If mains returns while the host is still up, the onboot guests start
+again after 2 minutes of steady power. Its log: `journalctl -u
+cloudio-power-watch`. Deploy changes with `--tags power`.
+
+Home Assistant also has three phone alerts (State, not in git): *Power: grid
+outage*, *Power: grid restored* and *Power: house circuits dead*, the last one
+firing when the Powerwall sees no house load for 2 minutes or HA loses the
+Powerwall for 3. They only reach the phone while HA still has a path to the
+internet.
+
 ### External drives
 
 The media drive is in and mounted (`media_disk_uuid` set). Keep

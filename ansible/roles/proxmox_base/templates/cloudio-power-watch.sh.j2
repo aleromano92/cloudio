@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Managed by Ansible (proxmox_base/power_watch.yml).
+#
+# Run by cloudio-power-watch.service. The node is a laptop: on a power cut it
+# keeps running on its battery, but the router and switch die with the house,
+# so the guests serve nobody and then crash when the battery is flat
+# (2026-10-04: mains lost 05:38, crash 07:06).
+#
+# After {{ power_watch_grace_minutes }} min on battery, or as soon as the battery is down to
+# {{ power_watch_min_battery }}%, this shuts every guest down cleanly. The host itself stays
+# up on purpose: a laptop that was powered off stays off when mains comes
+# back, while one whose battery ran flat boots by itself (it did on
+# 2026-10-04) and starts the onboot guests. When mains has been back for
+# {{ power_watch_restore_minutes }} min while the host is still up, this starts the onboot guests.
+#
+# The "guests stopped" marker lives in /run, so a reboot clears it.
+set -uo pipefail
+
+AC="/sys/class/power_supply/{{ power_watch_ac }}/online"
+BAT="/sys/class/power_supply/{{ power_watch_battery }}/capacity"
+GRACE=$(( {{ power_watch_grace_minutes }} * 60 ))
+MIN_BATTERY={{ power_watch_min_battery }}
+RESTORE=$(( {{ power_watch_restore_minutes }} * 60 ))
+STOPPED=/run/cloudio-power-watch.stopped
+NODE=$(hostname)
+
+on_battery_since=""
+on_mains_since=""
+
+battery() { cat "$BAT" 2>/dev/null || echo "?"; }
+
+while true; do
+  now=$(date +%s)
+  # An unreadable adapter counts as mains: never stop the guests on a guess.
+  if [ "$(cat "$AC" 2>/dev/null || echo 1)" = 0 ]; then
+    on_mains_since=""
+    if [ -z "$on_battery_since" ]; then
+      on_battery_since=$now
+      echo "mains lost; battery at $(battery)%"
+    fi
+    if [ ! -e "$STOPPED" ]; then
+      bat=$(battery)
+      elapsed=$(( now - on_battery_since ))
+      if [ "$elapsed" -ge "$GRACE" ] \
+         || { [ "$bat" != "?" ] && [ "$bat" -le "$MIN_BATTERY" ]; }; then
+        echo "on battery for $(( elapsed / 60 )) min, battery at ${bat}%; shutting the guests down"
+        touch "$STOPPED"
+        pvesh create "/nodes/$NODE/stopall" --timeout 180
+        echo "guests stopped; battery at $(battery)%"
+      fi
+    fi
+  else
+    if [ -n "$on_battery_since" ]; then
+      echo "mains back after $(( (now - on_battery_since) / 60 )) min on battery; battery at $(battery)%"
+      on_battery_since=""
+    fi
+    if [ -e "$STOPPED" ]; then
+      [ -z "$on_mains_since" ] && on_mains_since=$now
+      if [ $(( now - on_mains_since )) -ge "$RESTORE" ]; then
+        echo "mains steady for {{ power_watch_restore_minutes }} min; starting the onboot guests"
+        pvesh create "/nodes/$NODE/startall" && rm -f "$STOPPED"
+        on_mains_since=""
+      fi
+    fi
+  fi
+  sleep 15
+done

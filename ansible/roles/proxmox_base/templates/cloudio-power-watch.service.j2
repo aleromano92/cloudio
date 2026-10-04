@@ -1,0 +1,13 @@
+[Unit]
+Description=Shut the guests down on a long power cut, start them again when mains is back
+# pve-guests starts the onboot guests at boot; this only acts on later changes.
+After=pve-guests.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/cloudio-power-watch.sh
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

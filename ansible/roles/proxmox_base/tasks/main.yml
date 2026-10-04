@@ -20,6 +20,10 @@
   ansible.builtin.import_tasks: lid_switch.yml
   tags: ["power"]
 
+- name: Shut the guests down cleanly on a long power cut
+  ansible.builtin.import_tasks: power_watch.yml
+  tags: ["power"]
+
 - name: Mount the external media drive
   ansible.builtin.import_tasks: usb_media_mount.yml
   tags: ["storage"]

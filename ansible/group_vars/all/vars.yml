@@ -23,6 +23,18 @@ dns_nameservers:
 # --- Discrete GPU ---------------------------------------------------------
 blacklist_nvidia: true          # GeForce GT 740M is unused on this headless box
 
+# --- Power cuts -----------------------------------------------------------
+# The laptop rides out a power cut on its battery (88 min on 2026-10-04, with
+# the battery at about half its design capacity), but the router dies with
+# the house, so the guests serve nobody. After this long on battery, or once
+# the battery drops to the floor, the guests are shut down cleanly; they come
+# back once mains has been steady for power_watch_restore_minutes.
+power_watch_grace_minutes: 10
+power_watch_min_battery: 30     # percent
+power_watch_restore_minutes: 2
+power_watch_ac: "ACAD"          # /sys/class/power_supply/ names on the Vaio
+power_watch_battery: "BAT1"
+
 # --- External media drive -------------------------------------------------
 # Format the USB drive ext4, then:  blkid /dev/sdX1   -> copy the UUID here.
 # While this is CHANGE-ME the playbook creates the mount point but does NOT

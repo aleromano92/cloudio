@@ -14,6 +14,11 @@
     name: pveproxy
     state: restarted
 
+- name: restart cloudio-power-watch
+  ansible.builtin.systemd:
+    name: cloudio-power-watch
+    state: restarted
+
 - name: restart systemd-logind
   ansible.builtin.systemd:
     name: systemd-logind
