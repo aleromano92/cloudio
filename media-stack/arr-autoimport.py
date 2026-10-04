@@ -90,49 +90,62 @@ def res_of(q):
 
 # --- films -----------------------------------------------------------------
 
+def readings(title):
+    """Ways to read a release title, most specific first.
+
+    "American Pie 3 Il matrimonio - Wedding" -> the whole thing, each side of
+    " - ", and each of those without the stray sequel number, which throws
+    TMDB's search off ("American Pie Presents 1 Band Camp" finds nothing,
+    "American Pie Presents Band Camp" does).
+    """
+    t = clean_title(title)
+    parts = [t] + ([p.strip() for p in t.split(" - ") if p.strip()] if " - " in t else [])
+    out = []
+    # ...and the franchise name before that number ("American Pie 1 Il primo
+    # assaggio..." -> "American Pie"), which with the year is exact enough
+    prefix = [re.split(r"\s\d\s", f"{p} ")[0].strip() for p in parts if re.search(r"\s\d\s", f"{p} ")]
+    for p in parts + [re.sub(r"\s+\d\s+", " ", f" {p} ").strip() for p in parts] + prefix:
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
 def find_movie(radarr, title, year):
-    want = norm(clean_title(title))
-    if not want:
+    cands = readings(title)
+    if not cands:
         return None, "no title"
+    wants = {norm(c) for c in cands}
     hits = []
     for m in radarr.api("movie"):
         names = {norm(m.get("title")), norm(m.get("originalTitle"))}
         names |= {norm(a.get("title")) for a in m.get("alternateTitles", [])}
-        if want in names and (not year or abs(m.get("year", 0) - year) <= 1):
+        if wants & names and (not year or abs(m.get("year", 0) - year) <= 1):
             hits.append(m)
     if len(hits) == 1:
         return hits[0], "library"
     if len(hits) > 1:
         return None, f"{len(hits)} library films match"
-    term = f"{clean_title(title)} {year}" if year else clean_title(title)
-    # Trust only TMDB's best answer for that year; a lower-ranked result that
-    # happens to be in the library is how a wrong film would sneak in.
-    best = [m for m in radarr.api("movie/lookup", params={"term": term})[:5]
-            if not year or abs(m.get("year", 0) - year) <= 1][:1]
-    for m in best:
-        names = {norm(m.get("title")), norm(m.get("originalTitle"))}
-        names |= {norm(a.get("title")) for a in m.get("alternateTitles", [])}
-        if m.get("id"):
-            return m, "TMDB, already in library"
-        if want in names:
-            m.update(qualityProfileId=1, rootFolderPath="/data/media/movies", monitored=False,
-                     minimumAvailability="released", addOptions={"searchForMovie": False, "monitor": "none"})
-            if DRY_RUN:
-                return m, "TMDB, would add"
-            return radarr.api("movie", m), "TMDB, added unmonitored"
-    return None, f"no match for '{term}'"
+    for c in cands:
+        term = f"{c} {year}" if year else c
+        # Trust only TMDB's best answer for that year; a lower-ranked result
+        # that happens to be in the library is how a wrong film sneaks in.
+        best = [m for m in radarr.api("movie/lookup", params={"term": term})[:5]
+                if not year or abs(m.get("year", 0) - year) <= 1][:1]
+        for m in best:
+            names = {norm(m.get("title")), norm(m.get("originalTitle"))}
+            names |= {norm(a.get("title")) for a in m.get("alternateTitles", [])}
+            if m.get("id"):
+                return m, f"TMDB '{term}', already in library"
+            if norm(c) in names:
+                m.update(qualityProfileId=1, rootFolderPath="/data/media/movies", monitored=False,
+                         minimumAvailability="released", addOptions={"searchForMovie": False, "monitor": "none"})
+                if DRY_RUN:
+                    return m, f"TMDB '{term}', would add"
+                return radarr.api("movie", m), f"TMDB '{term}', added unmonitored"
+    return None, f"no match for '{cands[0]}' ({year or 'no year'})"
 
 
-def handle_movie(radarr, item):
-    parsed = radarr.api("parse", params={"title": item["title"]}).get("parsedMovieInfo") or {}
-    titles = parsed.get("movieTitles") or [parsed.get("movieTitle") or item["title"]]
-    movie, how = find_movie(radarr, titles[0], parsed.get("year") or 0)
-    if not movie:
-        return f"left alone: {how}"
-    files = video_items(radarr.api("manualimport", params={"downloadId": item["downloadId"], "filterExistingFiles": "false"}))
-    if not files:
-        return "left alone: no video file in the download"
-    f = files[0]
+def import_film(radarr, item, f, movie, how):
     old = (movie.get("movieFile") or {}).get("quality")
     if old and res_of(f["quality"]) <= res_of(old):
         return f"left alone: {res_of(f['quality'])}p is not better than the {res_of(old)}p already in {movie['title']}"
@@ -143,6 +156,34 @@ def handle_movie(radarr, item):
         "path": f["path"], "movieId": movie["id"], "quality": f["quality"], "languages": langs,
         "downloadId": item["downloadId"], "releaseGroup": f.get("releaseGroup")}]})
     return f"imported into {movie['title']} ({movie['year']}) [{how}]"
+
+
+def parse_movie(radarr, name):
+    p = radarr.api("parse", params={"title": name}).get("parsedMovieInfo") or {}
+    return (p.get("movieTitles") or [p.get("movieTitle") or name])[0], p.get("year") or 0
+
+
+def handle_movie(radarr, item):
+    files = video_items(radarr.api("manualimport", params={"downloadId": item["downloadId"], "filterExistingFiles": "false"}))
+    if not files:
+        return "left alone: no video file in the download"
+    # A pack ("American Pie Saga (1999-2012)") holds several full films: each
+    # file is matched on its own name. Small files are extras, not films.
+    films = [f for f in files if f.get("size", 0) >= 0.4 * files[0].get("size", 0)]
+    if len(films) > 1:
+        results = []
+        for f in films:
+            name = os.path.splitext(os.path.basename(f["path"]))[0]
+            movie, how = find_movie(radarr, *parse_movie(radarr, name))
+            results.append(f"{name[:50]}: " + (import_film(radarr, item, f, movie, how) if movie else f"left alone: {how}"))
+        return f"pack of {len(films)} films\n    " + "\n    ".join(results)
+    movie, how = find_movie(radarr, *parse_movie(radarr, item["title"]))
+    if not movie:
+        # the torrent's name may be vaguer than the file's
+        movie, how = find_movie(radarr, *parse_movie(radarr, os.path.splitext(os.path.basename(files[0]["path"]))[0]))
+    if not movie:
+        return f"left alone: {how}"
+    return import_film(radarr, item, files[0], movie, how)
 
 
 # --- series ----------------------------------------------------------------
