@@ -28,6 +28,10 @@
   ansible.builtin.import_tasks: usb_media_mount.yml
   tags: ["storage"]
 
+- name: Mount the archive drive (photos, personal files, local backups)
+  ansible.builtin.import_tasks: archive_mount.yml
+  tags: ["storage"]
+
 - name: Install and connect Tailscale
   ansible.builtin.import_tasks: tailscale.yml
   tags: ["tailscale"]

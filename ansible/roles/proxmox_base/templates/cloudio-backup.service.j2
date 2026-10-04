@@ -1,7 +1,8 @@
 [Unit]
-Description=cloudio nightly backup (vzdump + restic)
+Description=cloudio nightly backup (vzdump{% if restic_enabled | bool %} + restic{% endif %})
 Wants=network-online.target
 After=network-online.target
+RequiresMountsFor={{ archive_disk_mount }}
 
 [Service]
 Type=oneshot

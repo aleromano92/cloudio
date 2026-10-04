@@ -42,16 +42,28 @@ power_watch_battery: "BAT1"
 media_disk_uuid: "ff49648b-d4e6-4628-bb08-87b8dd117fad"   # WD My Book 16 TB (WD160EDGZ), ext4, label "media"
 media_disk_mount: "/mnt/media"  # where it mounts on the Proxmox host
 
+# --- Archive drive ----------------------------------------------------------
+# The old 2 TB NAS disk (WD20EARX, USB). Holds the family's photos and personal
+# files (precious, kept until a NAS exists) and the local backups under
+# backup_local_path. Only the large ext4 partition is mounted.
+archive_disk_uuid: "8508aa01-205a-4e42-bb70-42b2aef563cd"
+archive_disk_mount: "/mnt/archive"
+
 # --- Backups -----------------------------------------------------------
-# Leave false until BOTH the local backup disk (mounted at backup_local_path)
-# and the Hetzner Storage Box exist. Then set true and re-run --tags backup.
-# While false: no restic setup, no vzdump timer.
-backups_enabled: false
+# Nightly vzdump of every guest to the archive drive, kept by Proxmox's own
+# retention. The off-site restic push to the Hetzner Storage Box switches on
+# by itself once restic_storagebox_user is set (needs vault_restic_password).
+backups_enabled: true
+restic_enabled: "{{ restic_storagebox_user != 'uXXXXXX' }}"
 
 # --- Local backup target -------------------------------------------------
-# A second partition / USB stick, mounted here by you. The playbook only
-# creates the dump directory under it.
-backup_local_path: "/mnt/backup"
+# A Proxmox "dir" storage on the archive drive; is_mountpoint stops vzdump
+# from writing to the system SSD when the drive is not mounted. About 15 GB
+# per night (first run 2026-10-04: HA 4.2, media 8.2, unifi 1.9, stagista
+# 0.9), so this retention needs roughly 200 GB.
+backup_local_path: "{{ archive_disk_mount }}/cloudio-backup"
+backup_storage_id: "archive-backup"
+backup_prune: "keep-daily=7,keep-weekly=4,keep-monthly=3"
 
 # --- Off-site backup: Hetzner Storage Box (restic over SFTP) -------------
 restic_storagebox_user: "uXXXXXX"                       # CHANGE-ME

@@ -1,0 +1,3 @@
+# Managed by Ansible (proxmox_base/archive_mount.yml).
+# When the archive drive's filesystem appears, mount it (the fstab mount unit).
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}=="{{ archive_disk_uuid }}", TAG+="systemd", ENV{SYSTEMD_WANTS}+="{{ archive_disk_mount | regex_replace('^/', '') | replace('/', '-') }}.mount"

@@ -104,8 +104,9 @@ cloudio/
 Everything after this is `ansible-playbook site.yml` from the laptop.
 
 1. **Install Proxmox VE** on the Vaio from a USB stick. Give it a **static IP** on the LAN (`.10`).
-2. **Format the external drive ext4**, then note its UUID (`blkid /dev/sdX1`). Mount
-   your local backup disk/partition at `/mnt/backup`.
+2. **Note the UUIDs of the two external drives** (`blkid`): the media drive and the
+   archive drive, both ext4, go in `media_disk_uuid` and `archive_disk_uuid`. The
+   playbook mounts them.
 3. From the laptop: `ssh-copy-id root@<pve-ip>` so Ansible can log in without a password.
 4. **Install Ansible on the laptop**: `pipx install ansible` (or `brew install ansible`).
 5. **Clone this repo**, then:
@@ -172,14 +173,27 @@ internet.
 
 ### External drives
 
-The media drive is in and mounted (`media_disk_uuid` set). Keep
-`backups_enabled: false` until the local backup disk and the Storage Box exist,
-then:
+Two USB drives, both mounted by UUID with `nofail` (a missing drive never
+blocks boot) and remounted by a udev rule if they drop off USB and come back:
+
+- **Media** (`media_disk_uuid`, 16 TB) at `/mnt/media`: the library and
+  torrents. Disposable data, not backed up.
+- **Archive** (`archive_disk_uuid`, the old 2 TB NAS disk) at `/mnt/archive`:
+  the family's photos and personal files (precious; they live here until a NAS
+  exists) and the local backups under `cloudio-backup/`.
 
 ```bash
-# backup disk mounted at /mnt/backup, Storage Box created, backups_enabled: true:
-ansible-playbook site.yml --ask-vault-pass --tags backup
+ansible-playbook site.yml --ask-vault-pass --tags storage,backup
 ```
+
+**Backups.** `cloudio-backup.timer` runs `vzdump` of every guest (HA VM 110,
+media 112, unifi 113, stagista 114) at 02:30 into the Proxmox storage
+`archive-backup`, which keeps 7 daily, 4 weekly and 3 monthly dumps (about
+15 GB a night, ~200 GB in all). They show up under that storage in the web UI
+with a Restore button. The storage has `is_mountpoint` set, so with the archive
+drive missing the job fails instead of filling the system SSD. The off-site
+`restic` push switches on by itself once `restic_storagebox_user` is set. Its
+log: `journalctl -u cloudio-backup`.
 
 ### Media stack
 
@@ -417,9 +431,9 @@ run by a person typing it.
   SQLite databases, qBittorrent data, UniFi's MongoDB. That is protected by
   **backups**, not version control (see ADR-0002).
 
-**Backups:** nightly `vzdump` of the LXCs + HA backups to a local partition, plus a
-nightly `restic` push to a Hetzner Storage Box (the only off-site copy). Media is
-not backed up.
+**Backups:** nightly `vzdump` of every guest to the archive drive (running), plus a
+nightly `restic` push to a Hetzner Storage Box (the only off-site copy; not set up
+yet). Media is not backed up.
 
 ---
 
