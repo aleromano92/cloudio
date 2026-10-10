@@ -65,7 +65,7 @@ No dedicated DNS server in v1.
 ```
 cloudio/
 ├── README.md                 # this file
-├── CONTEXT.md                 # project glossary / ubiquitous language
+├── GLOSSARY.md                # project glossary / ubiquitous language
 ├── docs/
 │   ├── adr/                   # architecture decision records
 │   ├── network-topology.md    # flat-now / VLAN-later plan
@@ -483,5 +483,5 @@ for qBittorrent to seed. The public IP changes several times a day, which the
 
 ## Background
 
-- Project glossary: [`CONTEXT.md`](./CONTEXT.md)
+- Project glossary: [`GLOSSARY.md`](./GLOSSARY.md)
 - Why things are the way they are: [`docs/adr/`](./docs/adr/)
