@@ -62,3 +62,13 @@ _Avoid_: IP gateway (ambiguous), bridge, hub.
 The `restic` repository on the Hetzner Storage Box. The only copy of State that
 survives loss of the house.
 _Avoid_: cloud backup.
+
+**Casetta**:
+The wooden shed (HA area "Casetta legno") that houses the Router.
+Its Shelly H&T reads the air the Router sits in.
+_Avoid_: shed, outbuilding, box.
+
+**Router**:
+The ZTE MC801A 5G/4G modem-router in the Casetta: the house's only uplink.
+It accepts one logged-in session at a time, so the node is its only client.
+_Avoid_: modem (that's the radio inside it), ZTE, 5G box, CPE.

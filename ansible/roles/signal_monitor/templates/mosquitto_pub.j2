@@ -1,0 +1,7 @@
+# Managed by Ansible (signal_monitor role). Root-only. mosquitto_pub's options
+# file, read via XDG_CONFIG_HOME by ha-mqtt.sh, so the password never appears
+# on a command line. The login is set in HA's Mosquitto add-on (ADR-0012).
+-h {{ ha_mqtt_host }}
+-p {{ ha_mqtt_port }}
+-u {{ ha_mqtt_user }}
+-P {{ vault_ha_mqtt_password }}

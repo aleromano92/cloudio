@@ -29,6 +29,7 @@
 set -uo pipefail
 
 . /usr/local/lib/cloudio/zte-session.sh
+. /usr/local/lib/cloudio/ha-mqtt.sh
 # shellcheck disable=SC1091
 [ -r /etc/cloudio-signal-monitor.env ] && . /etc/cloudio-signal-monitor.env
 
@@ -53,6 +54,19 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 
 log_event() {
   jq -nc --arg ts "$(iso "$(now)")" --argjson e "$1" '{timestamp: $ts} + $e' >> "$EVENTS"
+}
+
+# Home Assistant's "Internet uplink" (ADR-0012): sent at once on a change,
+# otherwise once a minute as the heartbeat its expire_after watches. In the
+# background, so a broker that hangs never delays a ping. A rehearsal sends
+# nothing: HA would show an outage that isn't happening.
+uplink_said="" uplink_said_at=0
+uplink_report() {
+  [ "$DRY_RUN" = 1 ] && return 0
+  if [ "$1" != "$uplink_said" ] || [ $(( $(now) - uplink_said_at )) -ge 60 ]; then
+    ha_mqtt_pub "$HA_UPLINK_TOPIC" "$1" >/dev/null 2>&1 &
+    uplink_said=$1 uplink_said_at=$(now)
+  fi
 }
 
 # Down means every target failed, so one unreachable resolver isn't an outage.
@@ -106,6 +120,8 @@ recovered_within() {
   while [ "$(now)" -lt "$deadline" ]; do
     sleep "$INTERVAL"
     link_ok && return 0
+    # A ladder rung can wait minutes; the heartbeat must not lapse meanwhile.
+    uplink_report OFF
   done
   return 1
 }
@@ -176,5 +192,6 @@ while true; do
       log_event "$(jq -nc --arg next "$(iso "$next_ladder")" '{event: "exhausted", retry_at: $next}')"
     fi
   fi
+  if [ "$down_since" -gt 0 ]; then uplink_report OFF; else uplink_report ON; fi
   sleep "$INTERVAL"
 done

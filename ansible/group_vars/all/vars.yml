@@ -278,6 +278,15 @@ ookla_speedtest_version: "1.2.0"
 zte_router_enabled: true
 zte_router_ip: "192.168.7.1"
 
+# Every sample, and the watchdog's uplink state, also go to Home Assistant as
+# the "Router 5G" device over MQTT (ADR-0012), into the Mosquitto add-on. Its
+# login is set by hand in the add-on's options (HA's side is State), with the
+# same password as vault_ha_mqtt_password.
+ha_mqtt_enabled: true
+ha_mqtt_host: "192.168.7.11"
+ha_mqtt_port: 1883
+ha_mqtt_user: "cloudio-pve"
+
 # --- Nightly band scheduling ----------------------------------------------
 # The serving mast goes out of service overnight (LTE anchor and NR both), and
 # the modem falls back to a distant one, so the daytime lock points at a band

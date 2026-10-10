@@ -13,6 +13,7 @@
 set -uo pipefail
 
 . /usr/local/lib/cloudio/zte-session.sh
+. /usr/local/lib/cloudio/ha-mqtt.sh
 
 # cell_id is the full E-UTRAN cell identity; its leading digits are the
 # enodeb_id (the site/BTS), so a change in enodeb_id means the modem moved to
@@ -93,8 +94,12 @@ main() {
 {% endif %}
   speedtest=$(speedtest_sample)
 
-  jq -nc --arg ts "$ts" --argjson zte "$zte" --argjson speedtest "$speedtest" \
-    '{timestamp: $ts, zte: $zte, speedtest: $speedtest}' >> "$log_dir/metrics.jsonl"
+  local sample
+  sample=$(jq -nc --arg ts "$ts" --argjson zte "$zte" --argjson speedtest "$speedtest" \
+    '{timestamp: $ts, zte: $zte, speedtest: $speedtest}')
+  printf '%s\n' "$sample" >> "$log_dir/metrics.jsonl"
+  # After the file, so HA being unreachable can never cost the sample.
+  ha_publish_sample "$sample"
 }
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then

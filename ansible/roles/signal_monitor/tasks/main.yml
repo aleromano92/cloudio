@@ -7,11 +7,12 @@
 # and this runs unattended on {{ signal_monitor_on_calendar }}
 # -- don't flip it on before vault_zte_router_password is the real password.
 
-- name: Install jq, msmtp, nodejs (for npx serve)
+- name: Install jq, msmtp, mosquitto-clients (Home Assistant over MQTT), nodejs (for npx serve)
   ansible.builtin.apt:
     name:
       - jq
       - msmtp
+      - mosquitto-clients
       - nodejs
       - npm
     state: present
@@ -80,6 +81,41 @@
     group: root
     mode: "0644"
   when: signal_monitor_enabled
+
+# The watchdog sources it once at start, hence the restart.
+- name: Install the Home Assistant MQTT library
+  ansible.builtin.copy:
+    src: ha-mqtt.sh
+    dest: /usr/local/lib/cloudio/ha-mqtt.sh
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart cloudio-watchdog
+  when: signal_monitor_enabled
+
+- name: Create the MQTT options directory
+  ansible.builtin.file:
+    path: /etc/cloudio-signal-monitor/mqtt
+    state: directory
+    mode: "0700"
+  when: signal_monitor_enabled and ha_mqtt_enabled
+
+# Without this file every publish is a no-op, which is how
+# ha_mqtt_enabled: false turns publishing off.
+- name: Install the MQTT login for publishing to Home Assistant
+  ansible.builtin.template:
+    src: mosquitto_pub.j2
+    dest: /etc/cloudio-signal-monitor/mqtt/mosquitto_pub
+    owner: root
+    group: root
+    mode: "0600"
+  when: signal_monitor_enabled and ha_mqtt_enabled
+
+- name: Stop publishing to Home Assistant
+  ansible.builtin.file:
+    path: /etc/cloudio-signal-monitor/mqtt/mosquitto_pub
+    state: absent
+  when: signal_monitor_enabled and not ha_mqtt_enabled
 
 - name: Install the signal monitor script
   ansible.builtin.template:

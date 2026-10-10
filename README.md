@@ -330,6 +330,20 @@ served straight off `pve` via `npx serve` on `signal_web_port` (default
 `8420`) — open `http://<pve_ip>:8420` (or the Tailscale address) and reload
 to refresh; it fetches `metrics.jsonl` client-side and draws it as plain SVG.
 
+**In Home Assistant** (ADR-0012): every sample, and the watchdog's view of the
+uplink, are also published over MQTT to HA's Mosquitto add-on. They appear as
+the **Router 5G** device in area Casetta Legno (`sensor.casetta_legno_router_5g_*`,
+`binary_sensor.casetta_legno_router_5g_internet_uplink`). The **Internet**
+dashboard (`/dashboard-internet`) charts them for 7 days, with the Casetta
+Shelly's temperature next to the modems' and its humidity below. Publishing is
+fire-and-forget (`files/ha-mqtt.sh`): if HA is down it gets a gap, never a lost
+sample. Readings go unavailable after 2 h without a sample, the uplink after
+3 min without the watchdog's once-a-minute heartbeat.
+
+HA's side is State, set by hand once: the Mosquitto add-on, its `logins`
+option holding `ha_mqtt_user` with the same password as
+`vault_ha_mqtt_password`, the MQTT integration, and the dashboard.
+
 ```bash
 tail -f /var/log/cloudio-signal/metrics.jsonl              # on pve
 cat /var/log/cloudio-signal/digests/$(date -u +%F).txt

@@ -29,6 +29,10 @@ vault_unifi_mongo_user_password: "generate-a-long-random-passphrase"
 # ever sending it). Only used if zte_router_enabled: true.
 vault_zte_router_password: "CHANGE-ME"
 
+# Login the node publishes to HA's Mosquitto add-on with (user ha_mqtt_user).
+# Must match the add-on's "logins" option. Only used if ha_mqtt_enabled: true.
+vault_ha_mqtt_password: "generate-a-long-random-passphrase"
+
 # SMTP relay password for the daily signal digest email (e.g. a Gmail app
 # password). Only used if signal_email_enabled: true.
 vault_signal_email_smtp_password: "CHANGE-ME"
