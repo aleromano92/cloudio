@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# Managed by Ansible (proxmox_base/backup.yml). Refine freely.
+#
+# Publishes the state of the local backups to Home Assistant over MQTT, as
+# the "Backups" device: for each guest, its newest dump, that dump's size and
+# how many are kept; for the archive drive, whether it's mounted and how much
+# room is left; and one "problem" flag for an alert to hang off. Runs after
+# every backup (ExecStopPost, so a failed run reports too) and hourly, so a
+# drive that drops off shows within the hour.
+#
+# It reads Proxmox, not the backup script: the storage's content list and
+# the vzdump task log both survive a reboot, and they count backups started
+# by hand from the web UI as well.
+#
+# Uses the signal monitor's MQTT library and login (ADR-0012). Without them
+# it publishes nothing.
+set -uo pipefail
+
+HA_MQTT_LIB=/usr/local/lib/cloudio/ha-mqtt.sh
+[ -r "$HA_MQTT_LIB" ] || exit 0
+# shellcheck disable=SC1090
+. "$HA_MQTT_LIB"
+
+STORAGE={{ backup_storage_id }}
+ARCHIVE={{ archive_disk_mount }}
+GUEST_IDS='{{ backup_guest_ids | map("int") | list | to_json }}'
+DISCOVERY_TOPIC=homeassistant/device/cloudio_backups/config
+STATE_TOPIC=cloudio/backups/state
+DRIVE_TOPIC=cloudio/backups/drive
+# A guest whose newest dump is older than this missed a night: 24 h plus the
+# timer's random delay and the length of a run.
+STALE_SECONDS=$(( 26 * 3600 ))
+# Three missed hourly reports, then HA shows the drive as unavailable rather
+# than the last good reading forever. The guests' state has no expiry: their
+# dump times already say how old they are.
+DRIVE_EXPIRE_SECONDS=10800
+
+now=$(date +%s)
+
+# Guest names as Proxmox knows them; a guest that's gone keeps its id.
+guests=$(pvesh get /cluster/resources --type vm --output-format json 2>/dev/null \
+  | jq -c --argjson ids "$GUEST_IDS" '
+      (map({key: (.vmid | tostring), value: .name}) | from_entries) as $names
+      | [$ids[] | {vmid: ., name: ($names[tostring] // "guest-\(.)")}]') \
+  || guests=$(jq -nc --argjson ids "$GUEST_IDS" '[$ids[] | {vmid: ., name: "guest-\(.)"}]')
+
+{% raw %}
+discovery() {
+  jq -nc --argjson guests "$guests" \
+    --arg state "$STATE_TOPIC" --arg drive "$DRIVE_TOPIC" --argjson exp "$DRIVE_EXPIRE_SECONDS" '
+    def ent($p; $id; $name; $topic; $tpl):
+      {p: $p, name: $name, uniq_id: "cloudio_backup_\($id)", obj_id: "backup_\($id)",
+       stat_t: $topic, val_tpl: $tpl};
+    def guest_ents($g):
+      ($g.vmid | tostring) as $v | $g.name as $n |
+      {
+        "\($n)_last": (ent("sensor"; "\($n)_last"; "\($n) last backup"; $state;
+                         "{{ value_json.guests[\"\($v)\"].last }}") + {dev_cla: "timestamp"}),
+        "\($n)_size": (ent("sensor"; "\($n)_size"; "\($n) backup size"; $state;
+                         "{{ value_json.guests[\"\($v)\"].size_gb }}")
+                       + {dev_cla: "data_size", unit_of_meas: "GB", sug_dsp_prc: 1}),
+        "\($n)_kept": (ent("sensor"; "\($n)_kept"; "\($n) backups kept"; $state;
+                         "{{ value_json.guests[\"\($v)\"].kept }}") + {ent_cat: "diagnostic"}),
+        "\($n)_status": (ent("sensor"; "\($n)_status"; "\($n) backup status"; $state;
+                           "{{ value_json.guests[\"\($v)\"].status }}")
+                         + {dev_cla: "enum", ops: ["ok", "stale", "none"]})
+      };
+    {
+      dev: {ids: ["cloudio_backups"], name: "Backups", mf: "Proxmox VE", mdl: "vzdump to the archive drive"},
+      o: {name: "cloudio proxmox_base"},
+      cmps: (
+        ([$guests[] | guest_ents(.)] | add) + {
+          last_run: (ent("sensor"; "last_run"; "Last run"; $state; "{{ value_json.run.end }}")
+                     + {dev_cla: "timestamp"}),
+          last_run_result: ent("sensor"; "last_run_result"; "Last run result"; $state;
+                               "{{ value_json.run.result }}"),
+          archive_free: (ent("sensor"; "archive_free"; "Archive drive free"; $drive;
+                             "{{ value_json.free_gb }}")
+                         + {dev_cla: "data_size", unit_of_meas: "GB", sug_dsp_prc: 0, exp_aft: $exp}),
+          archive_used: (ent("sensor"; "archive_used"; "Archive drive used"; $drive;
+                             "{{ value_json.used_pct }}")
+                         + {unit_of_meas: "%", stat_cla: "measurement", exp_aft: $exp}),
+          archive_mounted: (ent("binary_sensor"; "archive_mounted"; "Archive drive"; $drive;
+                                "{{ value_json.mounted }}")
+                            + {pl_on: "ON", pl_off: "OFF", dev_cla: "connectivity", exp_aft: $exp}),
+          problem: (ent("binary_sensor"; "problem"; "Backup problem"; $drive; "{{ value_json.problem }}")
+                    + {pl_on: "ON", pl_off: "OFF", dev_cla: "problem", exp_aft: $exp})
+        }
+      )
+    }'
+}
+{% endraw %}
+
+mounted=OFF
+free_gb=null
+used_pct=null
+content=null
+if mountpoint -q "$ARCHIVE"; then
+  mounted=ON
+  read -r avail size < <(df -B1 --output=avail,size "$ARCHIVE" | tail -1)
+  free_gb=$(( avail / 1000000000 ))
+  used_pct=$(( (size - avail) * 100 / size ))
+  content=$(pvesh get "/nodes/pve/storage/$STORAGE/content" --output-format json 2>/dev/null) || content=null
+fi
+
+# The newest finished vzdump task, whoever started it.
+run=$(pvesh get /nodes/pve/tasks --typefilter vzdump --limit 1 --output-format json 2>/dev/null \
+  | jq -c '.[0] // {} | {start: (.starttime | if . then todate else null end),
+                         end: (.endtime | if . then todate else null end),
+                         result: (.status // null)}') || run='{}'
+
+ha_mqtt_pub "$DISCOVERY_TOPIC" "$(discovery)"
+
+# Without the content list (drive missing, storage unreadable) the guests'
+# last known state stays retained on the broker.
+guest_state=null
+if [ "$content" != null ]; then
+  guest_state=$(printf '%s' "$content" | jq -c --argjson guests "$guests" --argjson now "$now" \
+    --argjson stale "$STALE_SECONDS" '
+    def r1: (. * 10 | round) / 10;
+    . as $dumps
+    | [$guests[] | .vmid as $v
+       | ([$dumps[] | select(.vmid == $v)] | sort_by(.ctime)) as $mine
+       | {key: ($v | tostring),
+          value: (if ($mine | length) == 0 then {last: null, size_gb: null, kept: 0, status: "none"}
+                  else ($mine[-1]) as $n
+                    | {last: ($n.ctime | todate), size_gb: ($n.size / 1e9 | r1), kept: ($mine | length),
+                       status: (if $now - $n.ctime > $stale then "stale" else "ok" end)}
+                  end)}]
+    | from_entries')
+  ha_mqtt_pub "$STATE_TOPIC" "$(jq -nc --argjson g "$guest_state" --argjson run "$run" '{guests: $g, run: $run}')"
+fi
+
+problem=$(jq -nr --arg mounted "$mounted" --argjson g "$guest_state" --argjson run "$run" '
+  if $mounted != "ON" or $g == null then "ON"
+  elif ($run.result // "OK") != "OK" then "ON"
+  elif [$g[] | select(.status != "ok")] | length > 0 then "ON"
+  else "OFF" end')
+
+ha_mqtt_pub "$DRIVE_TOPIC" "$(jq -nc --arg m "$mounted" --arg p "$problem" \
+  --argjson f "$free_gb" --argjson u "$used_pct" '{mounted: $m, free_gb: $f, used_pct: $u, problem: $p}')"

@@ -101,6 +101,16 @@
     group: root
     mode: "0750"
 
+# Publishes over the signal monitor's MQTT library and login, so it reports
+# nothing until that role has run (it's a no-op, not an error).
+- name: Install the backup report for Home Assistant
+  ansible.builtin.template:
+    src: cloudio-backup-report.sh.j2
+    dest: /usr/local/sbin/cloudio-backup-report.sh
+    owner: root
+    group: root
+    mode: "0750"
+
 - name: Install the backup service + timer
   ansible.builtin.template:
     src: "{{ item }}.j2"
@@ -111,11 +121,16 @@
   loop:
     - cloudio-backup.service
     - cloudio-backup.timer
+    - cloudio-backup-report.service
+    - cloudio-backup-report.timer
   notify: systemd daemon-reload
 
-- name: Enable the backup timer
+- name: Enable the backup timers
   ansible.builtin.systemd:
-    name: cloudio-backup.timer
+    name: "{{ item }}"
     enabled: true
     state: started
     daemon_reload: true
+  loop:
+    - cloudio-backup.timer
+    - cloudio-backup-report.timer

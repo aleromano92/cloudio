@@ -1,0 +1,10 @@
+[Unit]
+Description=Report the backups' state to Home Assistant hourly
+
+[Timer]
+OnBootSec=5min
+OnCalendar=hourly
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

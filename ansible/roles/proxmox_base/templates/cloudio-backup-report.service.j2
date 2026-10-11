@@ -1,0 +1,7 @@
+[Unit]
+Description=cloudio: report the backups' state to Home Assistant
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cloudio-backup-report.sh

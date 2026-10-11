@@ -195,6 +195,17 @@ drive missing the job fails instead of filling the system SSD. The off-site
 `restic` push switches on by itself once `restic_storagebox_user` is set. Its
 log: `journalctl -u cloudio-backup`.
 
+**In Home Assistant**, the **Backups** device shows each guest's newest dump
+(time, size, how many kept, `ok`/`stale`), the last run and its result, the
+archive drive's free space, and `binary_sensor.backups_backup_problem`, which
+turns on when a guest missed a night, the last run had errors, or the drive is
+missing. `cloudio-backup-report.sh` publishes it over the signal monitor's MQTT
+login (ADR-0012), after every run and hourly. It reads Proxmox's own storage
+list and task log, so it survives reboots and counts backups started by hand.
+The **Server** dashboard (`/dashboard-server`, administrators only) shows it
+next to links to every web UI on the node. The dashboard is State, written
+once by hand, not by Ansible.
+
 ### Media stack
 
 Everything runs in the `media` LXC (`192.168.7.12`). On the LAN, or from

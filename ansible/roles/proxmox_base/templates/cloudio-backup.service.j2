@@ -7,5 +7,7 @@ RequiresMountsFor={{ archive_disk_mount }}
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/cloudio-nightly-backup.sh
+# Also after a failed run, so Home Assistant hears about it the same night.
+ExecStopPost=-/usr/local/sbin/cloudio-backup-report.sh
 Nice=10
 IOSchedulingClass=idle
