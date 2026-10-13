@@ -62,19 +62,29 @@ zte_read_signal() {
 }
 
 # Prints one JSON object with the speedtest result, or null on failure.
+# One retry: since 2026-10-13 the test server's socket is sometimes dropped
+# mid-test ({"error":"Cannot read from socket: "}, exit 2), which would
+# otherwise cost the whole hour's sample. Errors go to the journal.
 speedtest_sample() {
-  local raw
-  # The Ookla CLI prints its license/GDPR banner to stdout (not stderr) on
-  # first acceptance -- the JSON result is always the last line either way.
-  raw=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>/dev/null | tail -n 1)
-  printf '%s' "$raw" | jq -ce '{
-    ping_ms: .ping.latency,
-    jitter_ms: .ping.jitter,
-    download_mbps: (.download.bandwidth * 8 / 1000000),
-    upload_mbps: (.upload.bandwidth * 8 / 1000000),
-    server: .server.name,
-    server_location: .server.location
-  }' 2>/dev/null || echo null
+  local raw attempt
+  for attempt in 1 2; do
+    # The Ookla CLI prints its license/GDPR banner to stdout (not stderr) on
+    # first acceptance -- the JSON result is always the last line either way.
+    raw=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>&1 | tail -n 1)
+    if printf '%s' "$raw" | jq -ce '{
+      ping_ms: .ping.latency,
+      jitter_ms: .ping.jitter,
+      download_mbps: (.download.bandwidth * 8 / 1000000),
+      upload_mbps: (.upload.bandwidth * 8 / 1000000),
+      server: .server.name,
+      server_location: .server.location
+    }' 2>/dev/null; then
+      return 0
+    fi
+    echo "speedtest attempt $attempt failed: $raw" >&2
+    [ "$attempt" = 1 ] && sleep 20
+  done
+  echo null
 }
 
 main() {
