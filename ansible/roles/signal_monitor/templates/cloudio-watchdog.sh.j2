@@ -19,6 +19,12 @@
 # Whatever fixed it stays until the next scheduled band change: returning to the
 # intended lock would be a second deliberate interruption.
 #
+# Pings passing isn't the whole story: on 2026-10-15 the link answered pings
+# and short exchanges for nine hours while every speedtest stalled, until a
+# reboot cleared it. So after each new sample, {{ watchdog_speedtest_fail_threshold }} failed speedtests in a
+# row, all since the last reboot, reboot the modem too. The reboot shares the
+# ladder's timestamp, so neither reboots straight after the other.
+#
 # Every event is one JSON line in {{ signal_log_dir }}/watchdog-events.jsonl.
 #
 # For a rehearsal that changes nothing on the router (it still reads the
@@ -43,6 +49,8 @@ COOLDOWN=$(( ${WATCHDOG_COOLDOWN_MINUTES:-{{ watchdog_reboot_cooldown_minutes }}
 KNOWN_GOOD=({{ watchdog_known_good_lte | join(' ') }})
 STATE_DIR=${WATCHDOG_STATE_DIR:-/var/lib/cloudio-watchdog}
 EVENTS=${WATCHDOG_EVENTS:-{{ signal_log_dir }}/watchdog-events.jsonl}
+METRICS=${WATCHDOG_METRICS:-{{ signal_log_dir }}/metrics.jsonl}
+SPEEDTEST_FAILS=${WATCHDOG_SPEEDTEST_FAILS:-{{ watchdog_speedtest_fail_threshold }}}
 DRY_RUN=${WATCHDOG_DRY_RUN:-0}
 DIAG_FIELDS=network_type,lte_rsrp,lte_snr,wan_active_band,nr5g_action_band,enodeb_id,cell_id,wan_ipaddr
 
@@ -154,6 +162,35 @@ run_ladder() {
   return 1
 }
 
+# Each new sample in metrics.jsonl is checked once. The newest
+# $SPEEDTEST_FAILS must all have failed their speedtest and all postdate the
+# last reboot: a reboot that didn't help waits for as many fresh failures.
+metrics_seen=""
+check_stalled() {
+  local mtime failed
+  mtime=$(stat -c %Y "$METRICS" 2>/dev/null) || return 0
+  [ "$mtime" = "$metrics_seen" ] && return 0
+  metrics_seen=$mtime
+  failed=$(tail -n "$SPEEDTEST_FAILS" "$METRICS" | jq -s --arg since "$(iso "$(last_reboot)")" \
+    '[.[] | select(.timestamp > $since and .speedtest == null)] | length' 2>/dev/null)
+  [ "${failed:-0}" -ge "$SPEEDTEST_FAILS" ] || return 0
+
+  log_event "$(jq -nc --argjson n "$failed" --argjson r "$(diagnose)" \
+    '{event: "stalled", failed_speedtests: $n, router: $r}')"
+  now > "$STATE_DIR/last-reboot"
+  local accepted=true
+  act reboot || accepted=false
+  # The modem takes a few seconds to drop the link; a ping before then would
+  # pass and call it recovered.
+  sleep 30
+  local recovered=false
+  recovered_within $(( {{ band_reboot_wait_seconds }} - 30 )) && recovered=true
+  log_event "$(jq -nc --argjson a "$accepted" --argjson r "$recovered" \
+    '{event: "step", step: "reboot", reason: "stalled", accepted: $a, recovered: $r}')"
+  # Not back: the loop sees it as an outage and climbs the ladder, whose reboot
+  # rung the cooldown now skips.
+}
+
 log_event "$(jq -nc --argjson dry "$([ "$DRY_RUN" = 1 ] && echo true || echo false)" \
   --arg targets "${TARGETS[*]}" '{event: "start", dry_run: $dry, targets: $targets}')"
 
@@ -171,6 +208,7 @@ while true; do
       down_since=0 fixed_by="" next_ladder=0
     fi
     fails=0
+    check_stalled
   elif router_busy; then
     :
   else

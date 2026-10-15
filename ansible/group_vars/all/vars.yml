@@ -329,6 +329,10 @@ watchdog_fail_threshold: 3                  # ~30s to declare an outage
 watchdog_step_wait_seconds: 45              # per rung, before trying the next
 watchdog_known_good_lte: [20]               # the band proven good overnight
 watchdog_reboot_cooldown_minutes: 45
+# Hourly speedtests failing in a row, while pings pass, before the modem is
+# rebooted anyway. Single failures happen (three on 2026-10-13); a stalled link
+# fails every hour (2026-10-15, nine hours until a manual reboot).
+watchdog_speedtest_fail_threshold: 3
 
 # Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.
 # a Gmail app password) -- the text digest under signal_log_dir/digests/

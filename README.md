@@ -388,7 +388,10 @@ Three pieces, all needing `zte_router_enabled`:
   **reboot the modem**, at most once per `watchdog_reboot_cooldown_minutes`.
   Whatever fixed it stays until the next scheduled band change, so recovering
   never costs a second interruption. Outages show on the dashboard as a strip
-  above the charts.
+  above the charts. It also reboots the modem when
+  `watchdog_speedtest_fail_threshold` hourly speedtests in a row have failed
+  since the last reboot, even though pings pass: on 2026-10-15 the link
+  answered pings for nine hours while anything bigger stalled.
 
 **Result of the 2026-09-19 experiment (kept):** the day lock is B1+B3+B20 +
 n78, and the night sweep stays paused as a fallback. With the three bands
