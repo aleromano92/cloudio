@@ -6,8 +6,12 @@ watch qBittorrent's `movies` and `tv` categories, but a hand-picked Italian
 release ("X-Men - Giorni di un Futuro Passato - ROGUE CUT (2014) ...") parses
 to a title neither app knows, so it waits forever as "manual import required".
 
+Sonarr also blocks multi-season packs: it reads "Euphoria.S01-03..." as
+season 1 only and rejects every 2x01 or 3x01 file as unexpected.
+
 Every INTERVAL seconds this looks at each app's queue, including the items it
-couldn't tie to a film or series, and for every finished one:
+couldn't tie to a film or series and blocked series imports, and for every
+finished one:
 
   1. cleans the parsed title (edition words like ROGUE CUT, EXTENDED, ...);
   2. finds the film/series in the library by title, original title or any
@@ -200,17 +204,35 @@ def find_series(sonarr, title):
     return None, f"no series in the library matches '{clean_title(title)}'"
 
 
+def file_episodes(sonarr, f, series, by_number):
+    """The library episodes a file holds, read from its own name.
+
+    Sonarr's guess can't be trusted here: it ties a pack's files to what the
+    folder name promised, so "Euphoria.S01-03..." expects season 1 only.
+    """
+    if (f.get("series") or {}).get("id") == series["id"] and f.get("episodes"):
+        return [e["id"] for e in f["episodes"]]
+    name = os.path.splitext(os.path.basename(f["path"]))[0]
+    p = sonarr.api("parse", params={"title": name}).get("parsedEpisodeInfo") or {}
+    return [by_number.get((p.get("seasonNumber"), n)) for n in p.get("episodeNumbers") or []]
+
+
 def handle_episodes(sonarr, item):
-    parsed = sonarr.api("parse", params={"title": item["title"]}).get("parsedEpisodeInfo") or {}
-    series, how = find_series(sonarr, parsed.get("seriesTitle") or item["title"])
+    if item.get("seriesId"):
+        series, how = sonarr.api(f"series/{item['seriesId']}"), "queue"
+    else:
+        parsed = sonarr.api("parse", params={"title": item["title"]}).get("parsedEpisodeInfo") or {}
+        series, how = find_series(sonarr, parsed.get("seriesTitle") or item["title"])
     if not series:
         return f"left alone: {how}"
+    # No seriesId here: with it, Sonarr lists the series' library files instead
     items = video_items(sonarr.api("manualimport", params={
-        "downloadId": item["downloadId"], "seriesId": series["id"], "filterExistingFiles": "false"}))
+        "downloadId": item["downloadId"], "filterExistingFiles": "false"}))
     have = {e["id"]: e for e in sonarr.api("episode", params={"seriesId": series["id"], "includeEpisodeFile": "true"})}
+    by_number = {(e["seasonNumber"], e["episodeNumber"]): e["id"] for e in have.values()}
     todo, skipped = [], 0
     for f in items:
-        eps = [have.get(e["id"]) for e in f.get("episodes") or []]
+        eps = [have.get(i) for i in file_episodes(sonarr, f, series, by_number)]
         if not eps or None in eps:
             skipped += 1
             continue
@@ -232,9 +254,12 @@ def handle_episodes(sonarr, item):
 # --- loop ------------------------------------------------------------------
 
 def stuck(item, kind):
-    """A finished download the app has not tied to a film/series itself."""
+    """A finished download the app has not tied to a film/series itself, or a
+    series pack it tied to only some of its seasons and so won't import."""
     if item.get("status") != "completed" or not item.get("downloadId"):
         return False
+    if kind == "series" and item.get("trackedDownloadState") == "importBlocked":
+        return True
     known = item.get("movieId") if kind == "movie" else item.get("seriesId")
     return not known
 
