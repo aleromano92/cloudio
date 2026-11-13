@@ -112,8 +112,8 @@
       content: "{{ lookup('ansible.builtin.template', 'tmux.conf.j2') }}"
       mode: "0644"
       owner: "{{ stagista_user }}"
-    - path: /etc/systemd/system/claude-remote-control.service
-      content: "{{ lookup('ansible.builtin.template', 'claude-remote-control.service.j2') }}"
+    - path: /etc/systemd/system/claude-remote-control@.service
+      content: "{{ lookup('ansible.builtin.template', 'claude-remote-control@.service.j2') }}"
       mode: "0644"
       owner: root
   loop_control:
@@ -237,9 +237,10 @@
   register: stagista_repo
   changed_when: "stagista_repo.stdout | trim == 'CHANGED'"
 
-# Started only once Claude is signed in and the home folder trusted, both
-# steps for a person at the terminal; before that it would only crash-loop.
-- name: Run the Remote Control server when Claude is ready
+# One server per project folder. Each is started only once Claude is signed
+# in and that folder trusted, both steps for a person at the terminal; before
+# that it would only crash-loop. The old single server in ~/code goes away.
+- name: Run a Remote Control server per project when Claude is ready
   ansible.builtin.command:
     argv:
       - pct
@@ -250,23 +251,31 @@
       - -euc
       - |
         u={{ stagista_user }}
+        changed=UNCHANGED
+        if [ -e /etc/systemd/system/claude-remote-control.service ]; then
+          systemctl disable --now claude-remote-control >/dev/null 2>&1 || true
+          rm -f /etc/systemd/system/claude-remote-control.service
+          changed=CHANGED
+        fi
         systemctl daemon-reload
         ready=$(su - "$u" -c 'NO_TMUX=1 claude auth status 2>/dev/null' | jq -r .loggedIn 2>/dev/null || true)
-        trusted=$(jq -r --arg d "{{ stagista_workdir }}" '.projects[$d].hasTrustDialogAccepted // false' "/home/$u/.claude.json" 2>/dev/null || true)
-        if [ "$ready" != true ] || [ "$trusted" != true ]; then echo NOT_READY; exit 0; fi
-        if systemctl is-enabled --quiet claude-remote-control && systemctl is-active --quiet claude-remote-control; then
-          echo UNCHANGED
-        else
-          systemctl enable --now claude-remote-control >/dev/null && echo CHANGED
-        fi
+        for p in {{ stagista_rc_projects | map('quote') | join(' ') }}; do
+          trusted=$(jq -r --arg d "{{ stagista_workdir }}/$p" '.projects[$d].hasTrustDialogAccepted // false' "/home/$u/.claude.json" 2>/dev/null || true)
+          if [ "$ready" != true ] || [ "$trusted" != true ]; then echo "NOT_READY $p"; continue; fi
+          if ! { systemctl is-enabled --quiet "claude-remote-control@$p" && systemctl is-active --quiet "claude-remote-control@$p"; }; then
+            systemctl enable --now "claude-remote-control@$p" >/dev/null
+            changed=CHANGED
+          fi
+        done
+        echo $changed
   register: stagista_rc
-  changed_when: "stagista_rc.stdout | trim == 'CHANGED'"
+  changed_when: "'CHANGED' in stagista_rc.stdout_lines"
 
-- name: Restart the Remote Control server after its unit changed
-  ansible.builtin.command: "pct exec {{ stagista_ctid }} -- systemctl restart claude-remote-control"
+- name: Restart the Remote Control servers after their unit changed
+  ansible.builtin.command: "pct exec {{ stagista_ctid }} -- systemctl try-restart 'claude-remote-control@*'"
   when:
-    - stagista_rc.stdout | trim == 'UNCHANGED'
-    - stagista_files.results | selectattr('item.path', 'equalto', '/etc/systemd/system/claude-remote-control.service') | selectattr('changed') | list | length > 0
+    - "'CHANGED' not in stagista_rc.stdout_lines"
+    - stagista_files.results | selectattr('item.path', 'equalto', '/etc/systemd/system/claude-remote-control@.service') | selectattr('changed') | list | length > 0
 
 - name: Keys to authorise by hand
   ansible.builtin.debug:
@@ -276,4 +285,4 @@
       - "Hetzner {{ stagista_hetzner_user }}@{{ stagista_hetzner_host }} ~/.ssh/authorized_keys:"
       - "{{ (stagista_pubkeys.results | selectattr('item', 'equalto', 'hetzner') | first).stdout }}"
       - "Then: ssh {{ stagista_user }}@{{ stagista_lxc_ip | regex_replace('/.*', '') }} and sign in to Claude once."
-      - "Remote Control: {{ 'running' if stagista_rc.stdout | trim != 'NOT_READY' else 'waiting. Sign in to Claude, run `cd {{ stagista_workdir }} && claude` once and trust the folder, then re-run this playbook.' }}"
+      - "Remote Control waiting on (sign in to Claude, run `claude` once in each and trust it, then re-run): {{ stagista_rc.stdout_lines | select('match', 'NOT_READY') | map('regex_replace', '^NOT_READY ', '') | join(', ') or 'none' }}"

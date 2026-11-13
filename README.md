@@ -450,15 +450,17 @@ run by a person typing it.
 - **Other repos** in `~/code` each get their own session with `proj <folder>`:
   `ssh -t aromano@192.168.7.14 '~/.local/bin/proj aleromano.com'`, or run
   `proj <folder>` inside tmux to switch. `proj` alone lists sessions and folders.
-- **From the phone or a browser**, the `claude-remote-control` service runs
-  `claude remote-control` in `~/code`: open the Code tab in the Claude app, or
-  claude.ai/code, and start a session there, running on stagista.
-- **Once, by hand, before that service can run:** sign in to Claude, trust
-  `~/code` (`cd ~/code && claude`), and accept the Remote Control prompt
-  (`cd ~/code && claude remote-control`, then Ctrl+C). Claude never remembers
-  trust for a home folder, hence `~/code`. The role enables the service once
-  Claude is signed in and `~/code` trusted; until the Remote Control prompt
-  is accepted, the service exits and retries every 30 s.
+- **From the phone or a browser**, one `claude-remote-control@<folder>` service
+  per folder in `stagista_rc_projects` (aleromano.com, cloudio, ilovefruit)
+  runs `claude remote-control` there: open the Code tab in the Claude app, or
+  claude.ai/code, start a new session and pick the folder, running on stagista.
+  To add one, clone it into `~/code`, add it to `stagista_rc_projects`, trust it
+  (`cd ~/code/<folder> && claude`) and re-run the playbook.
+- **Once, by hand, before those services can run:** sign in to Claude, trust
+  each folder (`cd ~/code/<folder> && claude`), and accept the Remote Control
+  prompt (`claude remote-control`, then Ctrl+C). The role enables a folder's
+  service once Claude is signed in and that folder trusted; until the Remote
+  Control prompt is accepted, the service exits and retries every 30 s.
 
 ---
 

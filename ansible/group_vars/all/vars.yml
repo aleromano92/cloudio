@@ -244,6 +244,13 @@ stagista_user: "aromano"
 # folder itself: Claude Code never remembers trust for a home folder, and the
 # Remote Control server has no terminal to ask on.
 stagista_workdir: "/home/{{ stagista_user }}/code"
+# Folders in stagista_workdir that each get a standing Remote Control server
+# (claude-remote-control@<folder>), so each shows up on its own when starting
+# a session from claude.ai/code or the Claude app. Each needs trusting once.
+stagista_rc_projects:
+  - aleromano.com
+  - cloudio
+  - ilovefruit
 stagista_git_name: "Alessandro Romano"
 stagista_git_email: "alessandro.romano1992@gmail.com"
 stagista_repo_https: "https://github.com/aleromano92/cloudio.git"   # public: cloning needs no key

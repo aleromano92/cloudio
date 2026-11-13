@@ -1,0 +1,22 @@
+# Managed by Ansible (stagista_lxc role).
+# A standing Claude Code server per project: from claude.ai/code or the Claude
+# app, start a session on stagista in {{ stagista_workdir }}/<instance>, one
+# instance per folder in stagista_rc_projects. Needs Claude signed in and the
+# folder trusted, both done once by hand; until then the role leaves it off.
+[Unit]
+Description=Claude Code Remote Control server for %i
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User={{ stagista_user }}
+WorkingDirectory={{ stagista_workdir }}/%i
+Environment=PATH=/home/{{ stagista_user }}/.local/bin:/usr/local/bin:/usr/bin:/bin
+# No idle session pre-created per server: three of them would sit in RAM
+# (4 GiB, see stagista_lxc_memory) for nothing; start one from the app.
+ExecStart=/home/{{ stagista_user }}/.local/bin/claude remote-control --name %i --no-create-session-in-dir
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
