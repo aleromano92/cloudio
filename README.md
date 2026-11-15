@@ -297,20 +297,23 @@ own config file is rewritten on every exit, so it can't be the source of
 truth). On a fresh container it first allows API calls from inside the
 container itself, so no WebUI password is involved. The policy:
 
-| | Weekdays 08:00–19:00 | Nights and weekends |
-|---|---|---|
-| Upload | 1.5 MiB/s (~12 Mbps) | 5 MiB/s (~42 Mbps) |
-| Download | 10 MiB/s | unlimited |
+| | All day |
+|---|---|
+| Upload | 512 KiB/s (~4 Mbps) |
+| Download | unlimited |
 
 Every torrent seeds, forever: no queue, no ratio or seeding-time limit, 20
 upload slots per torrent, up to 500 files open at once (a 107-file pack sits
 among 30+ torrents). The WebUI's CSRF and clickjacking protections are on:
 they were found off, which would let any page open in the same browser as a
 logged-in WebUI send it commands. Radarr and Sonarr use the API without
-browser headers, so they're unaffected (their connection tests pass). The weekday cap leaves room for two people on video
-calls even on a weak 5G cell (~45 Mbps up). The night cap stays well short of
-the upload so friends' Jellyfin streams keep working, and so the watchdog's
-pings don't fail on a saturated link and trigger a false outage. The SIM is
+browser headers, so they're unaffected (their connection tests pass). The upload
+cap is low because the Router has no queue management: any upload near the 5G
+cell's capacity adds latency for everyone in the house. On 2026-11-15 YouTube
+lagged on Wi-Fi while qBittorrent seeded at the old ~42 Mbps night cap. Ping
+averaged 55 ms (peaks 170) at 42 Mbps, 34 ms (peaks 130) at 12 Mbps, and 19 ms
+(peaks 38) under 1 Mbps. The old weekday/night schedule is off. The WebUI's
+slow-mode button drops the upload to 256 KiB/s (~2 Mbps), by hand only. The SIM is
 unlimited, so volume isn't a constraint. Speeds in `vars.yml` are bytes/s,
 which is the API's real unit whatever its docs say.
 
