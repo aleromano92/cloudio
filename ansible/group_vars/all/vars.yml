@@ -146,7 +146,8 @@ ha_upstream: "192.168.7.11:80"
 # latency for the whole house. On 2026-11-15 YouTube lagged on Wi-Fi while
 # seeding at ~42 Mbps. Ping to 1.1.1.1 averaged 55 ms (peaks 170) at 42 Mbps,
 # 34 ms (peaks 130) at 12 Mbps, and 19 ms (peaks 38) at under 1 Mbps.
-# Unlimited data SIM, so volume isn't a constraint.
+# Download is capped at 100 Mbps on weekdays 08:30-19:00, leaving the rest of
+# the 5G cell for work. Unlimited data SIM, so volume isn't a constraint.
 qbittorrent_preferences:
   queueing_enabled: false              # every torrent seeds at once (was 7)
   max_ratio_enabled: false             # never stop seeding (was: stop at ratio 1.5)
@@ -155,16 +156,18 @@ qbittorrent_preferences:
   max_inactive_seeding_time_enabled: false
   max_uploads: 100                     # upload slots across all torrents (was 20)
   max_uploads_per_torrent: 20          # was 7
+  max_connec: 200                      # peer connections overall (was 500): spare the 5G router's NAT table
+  max_connec_per_torrent: 50           # was 100; ~80 peers in use across 63 torrents on 2026-11-10
   limit_tcp_overhead: true             # caps count protocol overhead, so they hold on the wire
   limit_utp_rate: true
   up_limit: 524288                     # 512 KiB/s, ~4 Mbps on the wire (was 5 MiB/s nights and weekends)
-  dl_limit: 0                          # unlimited
-  alt_up_limit: 262144                 # 256 KiB/s, ~2 Mbps: the WebUI's slow-mode button, by hand only
-  alt_dl_limit: 10485760               # 10 MiB/s
-  scheduler_enabled: false             # one low cap all day (was: alt limits weekdays 08:00-19:00)
+  dl_limit: 0                          # unlimited outside weekday work hours
+  alt_up_limit: 524288                 # same as up_limit: the schedule only caps download
+  alt_dl_limit: 12499968               # 100 Mbps (12207 KiB/s: qBittorrent keeps whole KiB), weekday work hours
+  scheduler_enabled: true              # alt limits apply Monday-Friday 08:30-19:00 (container TZ)
   scheduler_days: 1                    # 0 every day, 1 weekdays, 2 weekends
   schedule_from_hour: 8
-  schedule_from_min: 0
+  schedule_from_min: 30
   schedule_to_hour: 19
   schedule_to_min: 0
   listen_port: 6881                    # forwarded, TCP and UDP, by the ZTE

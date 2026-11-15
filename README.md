@@ -297,10 +297,10 @@ own config file is rewritten on every exit, so it can't be the source of
 truth). On a fresh container it first allows API calls from inside the
 container itself, so no WebUI password is involved. The policy:
 
-| | All day |
-|---|---|
-| Upload | 512 KiB/s (~4 Mbps) |
-| Download | unlimited |
+| | Weekdays 08:30–19:00 | Nights and weekends |
+|---|---|---|
+| Upload | 512 KiB/s (~4 Mbps) | 512 KiB/s (~4 Mbps) |
+| Download | 100 Mbps | unlimited |
 
 Every torrent seeds, forever: no queue, no ratio or seeding-time limit, 20
 upload slots per torrent, up to 500 files open at once (a 107-file pack sits
@@ -312,8 +312,9 @@ cap is low because the Router has no queue management: any upload near the 5G
 cell's capacity adds latency for everyone in the house. On 2026-11-15 YouTube
 lagged on Wi-Fi while qBittorrent seeded at the old ~42 Mbps night cap. Ping
 averaged 55 ms (peaks 170) at 42 Mbps, 34 ms (peaks 130) at 12 Mbps, and 19 ms
-(peaks 38) under 1 Mbps. The old weekday/night schedule is off. The WebUI's
-slow-mode button drops the upload to 256 KiB/s (~2 Mbps), by hand only. The SIM is
+(peaks 38) under 1 Mbps. The weekday download cap leaves the rest of the 5G
+cell for work. The schedule switches qBittorrent's alternative limits on and
+off, so the alternative upload limit equals the normal one. The SIM is
 unlimited, so volume isn't a constraint. Speeds in `vars.yml` are bytes/s,
 which is the API's real unit whatever its docs say.
 
