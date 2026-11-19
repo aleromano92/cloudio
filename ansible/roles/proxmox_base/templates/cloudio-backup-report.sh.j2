@@ -10,7 +10,10 @@
 #
 # It reads Proxmox, not the backup script: the storage's content list and
 # the vzdump task log both survive a reboot, and they count backups started
-# by hand from the web UI as well.
+# by hand from the web UI as well. While the drive is missing it goes by the
+# content list as last seen (kept in $DUMPS_CACHE), so a guest's newest dump
+# keeps ageing and turns stale. A night the timer fired but no vzdump started
+# (systemd skips the run when the drive isn't mounted) shows as "not started".
 #
 # Uses the signal monitor's MQTT library and login (ADR-0012). Without them
 # it publishes nothing.
@@ -27,6 +30,7 @@ GUEST_IDS='{{ backup_guest_ids | map("int") | list | to_json }}'
 DISCOVERY_TOPIC=homeassistant/device/cloudio_backups/config
 STATE_TOPIC=cloudio/backups/state
 DRIVE_TOPIC=cloudio/backups/drive
+DUMPS_CACHE=/var/lib/cloudio/backup-report-dumps.json
 # A guest whose newest dump is older than this missed a night: 24 h plus the
 # timer's random delay and the length of a run.
 STALE_SECONDS=$(( 26 * 3600 ))
@@ -103,30 +107,56 @@ if mountpoint -q "$ARCHIVE"; then
   content=$(pvesh get "/nodes/pve/storage/$STORAGE/content" --output-format json 2>/dev/null) || content=null
 fi
 
-# The newest finished vzdump task, whoever started it.
-run=$(pvesh get /nodes/pve/tasks --typefilter vzdump --limit 1 --output-format json 2>/dev/null \
-  | jq -c '.[0] // {} | {start: (.starttime | if . then todate else null end),
-                         end: (.endtime | if . then todate else null end),
-                         result: (.status // null)}') || run='{}'
+# Each guest's newest dump and how many it has, from the storage while the
+# drive is here, else as last seen.
+dumps=null
+if [ "$content" != null ]; then
+  dumps=$(printf '%s' "$content" | jq -c '
+    group_by(.vmid)
+    | map(sort_by(.ctime) | {key: (.[-1].vmid | tostring),
+                             value: {ctime: .[-1].ctime, size: .[-1].size, kept: length}})
+    | from_entries') || dumps=null
+  if [ "$dumps" != null ]; then
+    mkdir -p "$(dirname "$DUMPS_CACHE")"
+    printf '%s\n' "$dumps" > "$DUMPS_CACHE.tmp" && mv "$DUMPS_CACHE.tmp" "$DUMPS_CACHE"
+  fi
+elif [ -r "$DUMPS_CACHE" ]; then
+  dumps=$(jq -c . "$DUMPS_CACHE" 2>/dev/null) || dumps=null
+fi
+
+# The newest vzdump task, whoever started it, unless the timer fired after it
+# started and the service isn't running now: then that night's run never
+# started.
+task=$(pvesh get /nodes/pve/tasks --typefilter vzdump --limit 1 --output-format json 2>/dev/null \
+  | jq -c '.[0] // {}') || task='{}'
+# Empty when the timer has never fired ("n/a").
+trigger=$(date -d "$(systemctl show cloudio-backup.timer -P LastTriggerUSec)" +%s 2>/dev/null)
+active=$(systemctl is-active cloudio-backup.service 2>/dev/null)
+run=$(jq -nc --argjson t "$task" --arg trigger "$trigger" --arg active "$active" '
+  ($trigger | tonumber? // null) as $fired
+  | if $fired != null and ($active | IN("active", "activating") | not)
+       and ($t.starttime // 0) < $fired
+    then {start: ($fired | todate), end: ($fired | todate), result: "not started"}
+    else {start: ($t.starttime | if . then todate else null end),
+          end: ($t.endtime | if . then todate else null end),
+          result: ($t.status // null)}
+    end') || run='{}'
 
 ha_mqtt_pub "$DISCOVERY_TOPIC" "$(discovery)"
 
-# Without the content list (drive missing, storage unreadable) the guests'
-# last known state stays retained on the broker.
+# With no dumps list at all (drive missing and never seen) the guests' last
+# published state stays retained on the broker.
 guest_state=null
-if [ "$content" != null ]; then
-  guest_state=$(printf '%s' "$content" | jq -c --argjson guests "$guests" --argjson now "$now" \
+if [ "$dumps" != null ]; then
+  guest_state=$(jq -nc --argjson dumps "$dumps" --argjson guests "$guests" --argjson now "$now" \
     --argjson stale "$STALE_SECONDS" '
     def r1: (. * 10 | round) / 10;
-    . as $dumps
-    | [$guests[] | .vmid as $v
-       | ([$dumps[] | select(.vmid == $v)] | sort_by(.ctime)) as $mine
-       | {key: ($v | tostring),
-          value: (if ($mine | length) == 0 then {last: null, size_gb: null, kept: 0, status: "none"}
-                  else ($mine[-1]) as $n
-                    | {last: ($n.ctime | todate), size_gb: ($n.size / 1e9 | r1), kept: ($mine | length),
-                       status: (if $now - $n.ctime > $stale then "stale" else "ok" end)}
-                  end)}]
+    [$guests[] | (.vmid | tostring) as $v | $dumps[$v] as $d
+     | {key: $v,
+        value: (if $d == null then {last: null, size_gb: null, kept: 0, status: "none"}
+                else {last: ($d.ctime | todate), size_gb: ($d.size / 1e9 | r1), kept: $d.kept,
+                      status: (if $now - $d.ctime > $stale then "stale" else "ok" end)}
+                end)}]
     | from_entries')
   ha_mqtt_pub "$STATE_TOPIC" "$(jq -nc --argjson g "$guest_state" --argjson run "$run" '{guests: $g, run: $run}')"
 fi

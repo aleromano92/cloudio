@@ -215,7 +215,10 @@ turns on when a guest missed a night, the last run had errors, or the drive is
 missing. `cloudio-backup-report.sh` publishes it over the signal monitor's MQTT
 login (ADR-0012), after every run and hourly. It reads Proxmox's own storage
 list and task log, so it survives reboots and counts backups started by hand.
-The **Server** dashboard (`/dashboard-server`, administrators only) shows it
+While the drive is missing it goes by the storage list as last seen
+(`/var/lib/cloudio/backup-report-dumps.json`), so the guests still turn
+`stale`; a night the timer fired but no backup started (systemd skips the run
+without the drive) reports `not started`. The **Server** dashboard (`/dashboard-server`, administrators only) shows it
 next to links to every web UI on the node. The dashboard is State, written
 once by hand, not by Ansible.
 
