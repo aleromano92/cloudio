@@ -1,0 +1,9 @@
+# Managed by Ansible (proxmox_base/ups.yml).
+maxretry = 3
+
+[{{ ups_name }}]
+  driver = usbhid-ups
+  port = auto
+  vendorid = {{ ups_vendorid }}
+  productid = {{ ups_productid }}
+  desc = "{{ ups_desc }}"

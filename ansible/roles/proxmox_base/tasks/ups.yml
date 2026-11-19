@@ -1,0 +1,67 @@
+---
+# The UPS (Eaton 5E 1200 G2) feeds the laptop, the Wildix switch and the USB
+# disks, and talks to the host over USB. NUT reads it: the usbhid-ups driver
+# plus upsd, which serves it to the power watch on localhost and to Home
+# Assistant's NUT integration on the LAN. No user in upsd.users, so nobody can
+# send it commands. upsmon stays off: it would power the host down on low
+# battery, and the power watch keeps the host up on purpose.
+- name: Install NUT
+  ansible.builtin.apt:
+    name:
+      - nut-server
+      - nut-client
+    state: present
+  register: nut_install
+
+# NUT's udev rule gives its group the UPS's USB node, but only for devices
+# added after the rule was installed.
+- name: Apply NUT's udev rule to the UPS already plugged in
+  ansible.builtin.command: >-
+    udevadm trigger --action=add --subsystem-match=usb
+    --attr-match=idVendor={{ ups_vendorid }} --attr-match=idProduct={{ ups_productid }}
+  when: nut_install is changed
+  changed_when: true
+
+- name: Run NUT as a server for this host and the LAN
+  ansible.builtin.copy:
+    dest: /etc/nut/nut.conf
+    content: |
+      # Managed by Ansible (proxmox_base/ups.yml).
+      MODE=netserver
+    owner: root
+    group: nut
+    mode: "0640"
+  notify: restart nut-server
+
+- name: Configure the UPS driver
+  ansible.builtin.template:
+    src: nut-ups.conf.j2
+    dest: /etc/nut/ups.conf
+    owner: root
+    group: nut
+    mode: "0640"
+  notify: restart nut-driver
+
+- name: Configure upsd
+  ansible.builtin.template:
+    src: nut-upsd.conf.j2
+    dest: /etc/nut/upsd.conf
+    owner: root
+    group: nut
+    mode: "0640"
+  notify: restart nut-server
+
+- name: Start the UPS driver and upsd
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - "nut-driver@{{ ups_name }}.service"
+    - nut-server.service
+
+- name: Keep upsmon off (it would power the host down)
+  ansible.builtin.systemd:
+    name: nut-monitor.service
+    enabled: false
+    state: stopped

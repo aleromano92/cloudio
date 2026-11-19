@@ -153,23 +153,36 @@ reality match the repo?" is answered by re-running the playbook (see ADR-0003).
 
 ### Power cuts
 
-The laptop rides out a power cut on its own battery (88 minutes on
-2026-10-04, battery at about half its design capacity); the Wildix switch does
-not, so the guests lose the network at once. `cloudio-power-watch.service` on
-the host watches the adapter: after `power_watch_grace_minutes` (10) on
-battery, or once the battery is down to `power_watch_min_battery` (30%), it
-shuts every guest down cleanly (`pvesh create /nodes/pve/stopall`). The host
-stays up on purpose: a laptop that was powered off stays off when mains comes
-back, while one whose battery ran flat boots by itself and starts the onboot
+A UPS (Eaton 5E 1200 G2) feeds the laptop, the Wildix switch and the USB
+disks: about 2 hours at their ~40 W. The 5G router has its own small UPS
+(~30 minutes). The UPS talks to the host over USB; NUT reads it
+(`nut-driver@eaton` + `nut-server`, `upsc eaton@localhost`) and serves it on
+`pve_ip:3493` to Home Assistant, read-only. upsmon is off on purpose: it would
+power the host down.
+
+`cloudio-power-watch.service` on the host polls the UPS and the laptop's
+adapter. While the UPS is on battery the guests keep running, so HA can still
+alert the phone; once the UPS flags low battery or has
+`power_watch_ups_min_runtime_minutes` (20) left, it shuts every guest down
+cleanly (`pvesh create /nodes/pve/stopall`), before the disks lose power. If
+the UPS runs out or can't be read, the laptop runs on its own battery (88
+minutes on 2026-10-04, at about half its design capacity) with the switch
+dark: then the guests stop after `power_watch_grace_minutes` (10), or once
+the laptop battery is down to `power_watch_min_battery` (30%). The host stays
+up on purpose: a laptop that was powered off stays off when mains comes back,
+while one whose battery ran flat boots by itself and starts the onboot
 guests. If mains returns while the host is still up, the onboot guests start
 again after 2 minutes of steady power. Its log: `journalctl -u
 cloudio-power-watch`. Deploy changes with `--tags power`.
 
-Home Assistant also has three phone alerts (State, not in git): *Power: grid
-outage*, *Power: grid restored* and *Power: house circuits dead*, the last one
-firing when the Powerwall sees no house load for 2 minutes or HA loses the
-Powerwall for 3. They only reach the phone while HA still has a path to the
-internet.
+Home Assistant also has four phone alerts (State, not in git): *Power: grid
+outage*, *Power: grid restored*, *Power: house circuits dead* and *Power:
+house power back*. *House circuits dead* fires when the UPS goes on battery
+(`sensor.eaton_status_data` contains `OB`, polled every minute), or, if the
+UPS isn't on battery, when the Powerwall sees no house load for 2 minutes or
+HA loses the Powerwall for 3. *House power back* fires when the UPS returns
+from battery to mains. They only reach the phone while HA still has a path to
+the internet.
 
 ### External drives
 
@@ -240,8 +253,8 @@ TMDB/TVDB, adding it unmonitored) and imports it with hardlinks, so seeding
 continues. It only replaces a file with a higher-resolution one and never
 monitors or searches. Its log: `docker logs arr-autoimport`.
 
-**If the drive drops off.** The laptop rides out a power cut on its battery;
-the drive does not. When it comes back, a udev rule runs
+**If the drive drops off.** The drive is on the UPS, but the laptop outlasts
+it on its own battery, and USB drives drop off for other reasons too. When it comes back, a udev rule runs
 `media-disk-reattach.service` on the host: it `fsck -p`s and remounts
 `/mnt/media`, then reboots the `media` LXC if `/data` there is unreadable
 (the LXC otherwise keeps the dead mount and Jellyfin fails with "Input/output

@@ -14,6 +14,16 @@
     name: pveproxy
     state: restarted
 
+- name: restart nut-driver
+  ansible.builtin.systemd:
+    name: "nut-driver@{{ ups_name }}"
+    state: restarted
+
+- name: restart nut-server
+  ansible.builtin.systemd:
+    name: nut-server
+    state: restarted
+
 - name: restart cloudio-power-watch
   ansible.builtin.systemd:
     name: cloudio-power-watch

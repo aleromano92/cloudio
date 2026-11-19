@@ -1,58 +1,122 @@
 #!/usr/bin/env bash
 # Managed by Ansible (proxmox_base/power_watch.yml).
 #
-# Run by cloudio-power-watch.service. The node is a laptop: on a power cut it
-# keeps running on its battery, but the router and switch die with the house,
-# so the guests serve nobody and then crash when the battery is flat
-# (2026-10-04: mains lost 05:38, crash 07:06).
+# Run by cloudio-power-watch.service. The node is a laptop on a UPS, read
+# through NUT as {{ ups_name }}@localhost, which also feeds the Wildix switch and the
+# USB disks; the 5G router has a small UPS of its own. Mains counts as lost
+# when the UPS is on battery (OB) or the laptop's adapter is offline (the UPS
+# ran out, or the laptop is unplugged from it).
 #
-# After {{ power_watch_grace_minutes }} min on battery, or as soon as the battery is down to
-# {{ power_watch_min_battery }}%, this shuts every guest down cleanly. The host itself stays
-# up on purpose: a laptop that was powered off stays off when mains comes
-# back, while one whose battery ran flat boots by itself (it did on
-# 2026-10-04) and starts the onboot guests. When mains has been back for
-# {{ power_watch_restore_minutes }} min while the host is still up, this starts the onboot guests.
+# On UPS battery the guests keep running, so Home Assistant can still alert
+# the phone, until the UPS flags low battery (LB) or has {{ power_watch_ups_min_runtime_minutes }} min or less
+# left. Then this shuts every guest down cleanly, before the USB disks lose
+# power with the UPS.
 #
-# The "guests stopped" marker lives in /run, so a reboot clears it.
+# On the laptop's own battery the switch is dark and the guests serve nobody
+# (2026-10-04, before the UPS: mains lost 05:38, crash 07:06). After {{ power_watch_grace_minutes }} min
+# of that, or as soon as the laptop battery is down to {{ power_watch_min_battery }}%, this shuts every
+# guest down.
+#
+# The host itself stays up on purpose: a laptop that was powered off stays
+# off when mains comes back, while one whose battery ran flat boots by itself
+# (it did on 2026-10-04) and starts the onboot guests. When mains has been
+# back for {{ power_watch_restore_minutes }} min while the host is still up, this starts the onboot guests.
+#
+# A UPS that can't be read (driver down, cable out, or the UPS itself off)
+# gives no signal: the adapter alone decides then. Never stop the guests on a
+# guess. The "guests stopped" marker lives in /run, so a reboot clears it.
 set -uo pipefail
 
+UPS="{{ ups_name }}@localhost"
 AC="/sys/class/power_supply/{{ power_watch_ac }}/online"
 BAT="/sys/class/power_supply/{{ power_watch_battery }}/capacity"
+UPS_MIN_RUNTIME=$(( {{ power_watch_ups_min_runtime_minutes }} * 60 ))
 GRACE=$(( {{ power_watch_grace_minutes }} * 60 ))
 MIN_BATTERY={{ power_watch_min_battery }}
 RESTORE=$(( {{ power_watch_restore_minutes }} * 60 ))
 STOPPED=/run/cloudio-power-watch.stopped
 NODE=$(hostname)
 
-on_battery_since=""
+on_battery_since=""   # mains lost: the UPS on battery, or the adapter offline
+on_laptop_since=""    # the adapter offline: the laptop on its own battery
 on_mains_since=""
+ups_link=""           # last logged state of the UPS link: ok / unreadable
+ups_vars=""
 
 battery() { cat "$BAT" 2>/dev/null || echo "?"; }
+ups_get() { sed -n "s/^$1: //p" <<<"$ups_vars"; }
+is_number() { [[ $1 =~ ^[0-9]+$ ]]; }
+
+ups_summary() {
+  local s="UPS at ${charge:-?}%"
+  is_number "$runtime" && s+=", ~$(( runtime / 60 )) min left"
+  echo "$s"
+}
+
+stop_guests() {
+  echo "$1; shutting the guests down"
+  touch "$STOPPED"
+  pvesh create "/nodes/$NODE/stopall" --timeout 180
+  echo "guests stopped"
+}
 
 while true; do
   now=$(date +%s)
-  # An unreadable adapter counts as mains: never stop the guests on a guess.
-  if [ "$(cat "$AC" 2>/dev/null || echo 1)" = 0 ]; then
+
+  # upsc fails (empty output) when upsd is down, the driver has lost the UPS
+  # or its data is stale.
+  ups_vars=$(upsc "$UPS" 2>/dev/null) || ups_vars=""
+  status=$(ups_get ups.status)
+  charge=$(ups_get battery.charge)
+  runtime=$(ups_get battery.runtime)
+  ups_ob=0; ups_lb=0
+  [[ " $status " == *" OB "* ]] && ups_ob=1
+  [[ " $status " == *" LB "* ]] && ups_lb=1
+  if [ -n "$ups_vars" ]; then
+    [ "$ups_link" != ok ] && echo "UPS readable: $status; $(ups_summary)"
+    ups_link=ok
+  else
+    [ "$ups_link" != unreadable ] && echo "UPS unreadable; going by the laptop's adapter alone"
+    ups_link=unreadable
+  fi
+  # An unreadable adapter counts as mains.
+  ac=$(cat "$AC" 2>/dev/null || echo 1)
+
+  if [ "$ups_ob" = 1 ] || [ "$ac" = 0 ]; then
     on_mains_since=""
     if [ -z "$on_battery_since" ]; then
       on_battery_since=$now
-      echo "mains lost; battery at $(battery)%"
+      if [ "$ups_ob" = 1 ]; then
+        echo "mains lost; the UPS is on battery: $(ups_summary)"
+      fi
     fi
+    if [ "$ac" = 0 ]; then
+      if [ -z "$on_laptop_since" ]; then
+        on_laptop_since=$now
+        echo "laptop adapter offline; on its own battery at $(battery)%"
+      fi
+    else
+      on_laptop_since=""
+    fi
+
     if [ ! -e "$STOPPED" ]; then
       bat=$(battery)
-      elapsed=$(( now - on_battery_since ))
-      if [ "$elapsed" -ge "$GRACE" ] \
-         || { [ "$bat" != "?" ] && [ "$bat" -le "$MIN_BATTERY" ]; }; then
-        echo "on battery for $(( elapsed / 60 )) min, battery at ${bat}%; shutting the guests down"
-        touch "$STOPPED"
-        pvesh create "/nodes/$NODE/stopall" --timeout 180
-        echo "guests stopped; battery at $(battery)%"
+      if [ "$ups_ob" = 1 ] && { [ "$ups_lb" = 1 ] \
+           || { is_number "$runtime" && [ "$runtime" -le "$UPS_MIN_RUNTIME" ]; }; }; then
+        stop_guests "UPS low after $(( (now - on_battery_since) / 60 )) min on battery ($status); $(ups_summary)"
+      elif [ -n "$on_laptop_since" ] \
+           && { [ $(( now - on_laptop_since )) -ge "$GRACE" ] \
+                || { [ "$bat" != "?" ] && [ "$bat" -le "$MIN_BATTERY" ]; }; }; then
+        stop_guests "laptop on its own battery for $(( (now - on_laptop_since) / 60 )) min, at ${bat}%"
       fi
     fi
   else
     if [ -n "$on_battery_since" ]; then
-      echo "mains back after $(( (now - on_battery_since) / 60 )) min on battery; battery at $(battery)%"
+      msg="mains back after $(( (now - on_battery_since) / 60 )) min; laptop battery at $(battery)%"
+      [ -n "$ups_vars" ] && msg+=", $(ups_summary)"
+      echo "$msg"
       on_battery_since=""
+      on_laptop_since=""
     fi
     if [ -e "$STOPPED" ]; then
       [ -z "$on_mains_since" ] && on_mains_since=$now
