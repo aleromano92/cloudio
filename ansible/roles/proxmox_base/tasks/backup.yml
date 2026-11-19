@@ -1,4 +1,26 @@
 ---
+# Everything below lives on the archive drive. Without it, backup_local_path
+# would be created on the system SSD under the bare mount point, so stop the
+# run instead. Checked by UUID, so another disk mounted there doesn't pass.
+- name: Check that the archive drive is mounted
+  ansible.builtin.command: >-
+    findmnt --source UUID={{ archive_disk_uuid }} --mountpoint {{ archive_disk_mount }}
+  register: backup_archive_mounted
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require the archive drive for the backups
+  ansible.builtin.assert:
+    that: backup_archive_mounted.rc == 0
+    fail_msg: >-
+      The archive drive (UUID {{ archive_disk_uuid }}) is not mounted at
+      {{ archive_disk_mount }}. The backups live on it, and without it
+      {{ backup_local_path }} would be created on the system SSD. Reconnect
+      the drive (pve remounts it when it reappears) or run
+      `mount {{ archive_disk_mount }}` on pve, then re-run.
+    quiet: true
+
 # Local: a Proxmox "dir" storage on the archive drive, which vzdump writes to
 # and prunes with backup_prune. It also lists the dumps in the web UI, with a
 # Restore button. is_mountpoint makes Proxmox refuse to use it while the drive

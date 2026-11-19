@@ -204,7 +204,9 @@ media 112, unifi 113, stagista 114) at 02:30 into the Proxmox storage
 `archive-backup`, which keeps 7 daily, 4 weekly and 3 monthly dumps (about
 15 GB a night, ~200 GB in all). They show up under that storage in the web UI
 with a Restore button. The storage has `is_mountpoint` set, so with the archive
-drive missing the job fails instead of filling the system SSD. The off-site
+drive missing the job fails instead of filling the system SSD. For the same
+reason the playbook's backup tasks stop with an error unless the archive drive
+(by UUID) is mounted at `/mnt/archive`. The off-site
 `restic` push switches on by itself once `restic_storagebox_user` is set. Its
 log: `journalctl -u cloudio-backup`.
 
