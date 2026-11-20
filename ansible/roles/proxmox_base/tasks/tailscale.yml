@@ -27,10 +27,6 @@
     enabled: true
     state: started
 
-# In sysctl.d, not the module's default /etc/sysctl.conf: Debian 13's
-# systemd-sysctl only reads the sysctl.d directories at boot, so a setting in
-# sysctl.conf applied live and then vanished at the next reboot, silently
-# cutting Tailscale off from everything behind pve.
 - name: Allow IP forwarding (needed to advertise a subnet route)
   ansible.posix.sysctl:
     name: "{{ item }}"
@@ -86,10 +82,3 @@
     - vault_tailscale_auth_key | default('') | length > 0
     - '"\"Running\"" in ts_status.stdout'
   changed_when: "'CHANGED' in ts_route_sync.stdout"
-  # "Connect Tailscale" above only runs `tailscale up` (which is what
-  # actually sets --advertise-routes) on FIRST auth, gated on the backend
-  # not already being "Running" -- but Tailscale can stay "Running"
-  # continuously even after lan_cidr changes in vars.yml (it rides the WAN,
-  # not the LAN), so that condition can be false on every later run and the
-  # advertised route would silently stay stale forever, with no error
-  # anywhere. `tailscale set` updates it without needing the authkey again.

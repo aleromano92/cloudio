@@ -1,10 +1,4 @@
 ---
-# The UPS (Eaton 5E 1200 G2) feeds the laptop, the Wildix switch and the USB
-# disks, and talks to the host over USB. NUT reads it: the usbhid-ups driver
-# plus upsd, which serves it to the power watch on localhost and to Home
-# Assistant's NUT integration on the LAN. No user in upsd.users, so nobody can
-# send it commands. upsmon stays off: it would power the host down on low
-# battery, and the power watch keeps the host up on purpose.
 - name: Install NUT
   ansible.builtin.apt:
     name:
@@ -13,8 +7,6 @@
     state: present
   register: nut_install
 
-# NUT's udev rule gives its group the UPS's USB node, but only for devices
-# added after the rule was installed.
 - name: Apply NUT's udev rule to the UPS already plugged in
   ansible.builtin.command: >-
     udevadm trigger --action=add --subsystem-match=usb

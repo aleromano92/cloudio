@@ -36,3 +36,17 @@ unique ID, can't go in an area, and vanish on a restart.
 - Readings expire after 2 hours without a sample, and the uplink after 3
   minutes without the watchdog's heartbeat, so a stopped publisher shows as
   unavailable rather than as a stale value.
+
+**Details that follow from it** (`files/ha-mqtt.sh`, `templates/mosquitto_pub.j2`).
+- The broker address and login live in `mosquitto_pub`'s own options file,
+  root-only and found through `XDG_CONFIG_HOME`, so the password never appears
+  on a command line. Without that file every publish is a no-op, which is how
+  `ha_mqtt_enabled: false` turns publishing off.
+- One device-based discovery message covers the whole Router. It goes out
+  before every state message, so a fresh HA knows the entities before their
+  first state arrives, and a broker that lost its retained messages heals
+  within the hour.
+- A half of a sample that failed (login, speedtest) leaves its fields `null`,
+  which HA shows as unknown rather than a fake zero.
+- The 4G lock is shown as on the `:8420` page: `B1+B3+B20`, or AUTO for the
+  firmware's all-bands mask.

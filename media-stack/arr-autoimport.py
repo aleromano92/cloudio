@@ -41,7 +41,6 @@ RETRY_AFTER = 3600
 DRY_RUN = os.environ.get("DRY_RUN") == "1"
 VIDEO = (".mkv", ".mp4", ".avi", ".m4v", ".ts", ".wmv")
 
-# Words that name a cut or an edition, never part of the film's title.
 EDITION = re.compile(
     r"(?i)\b(rogue cut|extended( cut| edition| version)?|director'?s cut|"
     r"theatrical( cut)?|final cut|ultimate( edition| cut)?|special edition|"
@@ -92,8 +91,6 @@ def res_of(q):
     return ((q or {}).get("quality") or {}).get("resolution") or 0
 
 
-# --- films -----------------------------------------------------------------
-
 def readings(title):
     """Ways to read a release title, most specific first.
 
@@ -105,8 +102,6 @@ def readings(title):
     t = clean_title(title)
     parts = [t] + ([p.strip() for p in t.split(" - ") if p.strip()] if " - " in t else [])
     out = []
-    # ...and the franchise name before that number ("American Pie 1 Il primo
-    # assaggio..." -> "American Pie"), which with the year is exact enough
     prefix = [re.split(r"\s\d\s", f"{p} ")[0].strip() for p in parts if re.search(r"\s\d\s", f"{p} ")]
     for p in parts + [re.sub(r"\s+\d\s+", " ", f" {p} ").strip() for p in parts] + prefix:
         if p and p not in out:
@@ -131,8 +126,6 @@ def find_movie(radarr, title, year):
         return None, f"{len(hits)} library films match"
     for c in cands:
         term = f"{c} {year}" if year else c
-        # Trust only TMDB's best answer for that year; a lower-ranked result
-        # that happens to be in the library is how a wrong film sneaks in.
         best = [m for m in radarr.api("movie/lookup", params={"term": term})[:5]
                 if not year or abs(m.get("year", 0) - year) <= 1][:1]
         for m in best:
@@ -171,8 +164,6 @@ def handle_movie(radarr, item):
     files = video_items(radarr.api("manualimport", params={"downloadId": item["downloadId"], "filterExistingFiles": "false"}))
     if not files:
         return "left alone: no video file in the download"
-    # A pack ("American Pie Saga (1999-2012)") holds several full films: each
-    # file is matched on its own name. Small files are extras, not films.
     films = [f for f in files if f.get("size", 0) >= 0.4 * files[0].get("size", 0)]
     if len(films) > 1:
         results = []
@@ -183,14 +174,11 @@ def handle_movie(radarr, item):
         return f"pack of {len(films)} films\n    " + "\n    ".join(results)
     movie, how = find_movie(radarr, *parse_movie(radarr, item["title"]))
     if not movie:
-        # the torrent's name may be vaguer than the file's
         movie, how = find_movie(radarr, *parse_movie(radarr, os.path.splitext(os.path.basename(files[0]["path"]))[0]))
     if not movie:
         return f"left alone: {how}"
     return import_film(radarr, item, files[0], movie, how)
 
-
-# --- series ----------------------------------------------------------------
 
 def find_series(sonarr, title):
     want = norm(clean_title(title))
@@ -225,7 +213,6 @@ def handle_episodes(sonarr, item):
         series, how = find_series(sonarr, parsed.get("seriesTitle") or item["title"])
     if not series:
         return f"left alone: {how}"
-    # No seriesId here: with it, Sonarr lists the series' library files instead
     items = video_items(sonarr.api("manualimport", params={
         "downloadId": item["downloadId"], "filterExistingFiles": "false"}))
     have = {e["id"]: e for e in sonarr.api("episode", params={"seriesId": series["id"], "includeEpisodeFile": "true"})}
@@ -250,8 +237,6 @@ def handle_episodes(sonarr, item):
     verb = "would import" if DRY_RUN else "imported"
     return f"{verb} {len(todo)} episode file(s) into {series['title']} [{how}]" + (f", {skipped} left alone" if skipped else "")
 
-
-# --- loop ------------------------------------------------------------------
 
 def stuck(item, kind):
     """A finished download the app has not tied to a film/series itself, or a

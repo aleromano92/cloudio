@@ -76,7 +76,7 @@ cloudio/
 │   ├── site.yml                # runs the roles below
 │   ├── requirements.yml        # ansible.posix, community.general
 │   ├── group_vars/all/
-│   │   ├── vars.yml            # everything you set (CHANGE-ME markers)
+│   │   ├── vars.yml            # everything you set (CHANGE-ME / uXXXXXX placeholders)
 │   │   ├── vault.yml.example   # template for the encrypted secrets file
 │   │   └── vault.yml           # you create this: ansible-vault encrypted
 │   └── roles/
@@ -116,7 +116,7 @@ Everything after this is `ansible-playbook site.yml` from the laptop.
    cp group_vars/all/vault.yml.example group_vars/all/vault.yml
    $EDITOR group_vars/all/vault.yml          # Tailscale auth key, restic password
    ansible-vault encrypt group_vars/all/vault.yml
-   $EDITOR group_vars/all/vars.yml           # fill every CHANGE-ME (pve_ip, drive UUID,
+   $EDITOR group_vars/all/vars.yml           # fill every CHANGE-ME and uXXXXXX (pve_ip, drive UUID,
                                              #   Storage Box user/host, HAOS version)
    ```
 6. On first Storage Box use, the `proxmox_base` role prints an SSH public key to
@@ -452,9 +452,11 @@ re-login and retry.
 Jellyfin hardware transcoding (Intel Quick Sync — **H.264 only** on this CPU, no
 HEVC) needs the render node (`/dev/dri/renderD128`) exposed to the unprivileged
 `media` LXC: add `lxc.cgroup2.devices.allow` + `lxc.mount.entry` lines to
-`/etc/pve/lxc/112.conf`, then uncomment the `devices:` block in
-`media-stack/docker-compose.yaml`. Left disabled in this draft — direct play and
-software transcode work without it. TODO: fold this into the `media_lxc` role.
+`/etc/pve/lxc/112.conf`, then give the `jellyfin` service a
+`devices: ["/dev/dri:/dev/dri"]` entry in `media-stack/docker-compose.yaml`.
+Not enabled: direct play and software transcode work without it. Building it
+into the `media_lxc` role is
+[issue #2](https://github.com/aleromano92/cloudio/issues/2).
 
 ### stagista (Claude Code on the server)
 

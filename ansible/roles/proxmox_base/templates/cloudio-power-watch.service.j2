@@ -1,7 +1,5 @@
 [Unit]
 Description=Shut the guests down on a long power cut, start them again when mains is back
-# pve-guests starts the onboot guests at boot; this only acts on later changes.
-# nut-server serves the UPS; without it this goes by the laptop's adapter.
 After=pve-guests.service nut-server.service
 
 [Service]

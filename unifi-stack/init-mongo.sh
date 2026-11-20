@@ -1,7 +1,4 @@
 #!/bin/bash
-# From linuxserver.io's docker-unifi-network-application docs. Runs once,
-# inside the unifi-db container, on first init (empty data dir) — creates the
-# `unifi` database user via the Mongo root account. Do not modify.
 if which mongosh > /dev/null 2>&1; then
   mongo_init_bin='mongosh'
 else

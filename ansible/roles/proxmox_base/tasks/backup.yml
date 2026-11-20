@@ -1,7 +1,4 @@
 ---
-# Everything below lives on the archive drive. Without it, backup_local_path
-# would be created on the system SSD under the bare mount point, so stop the
-# run instead. Checked by UUID, so another disk mounted there doesn't pass.
 - name: Check that the archive drive is mounted
   ansible.builtin.command: >-
     findmnt --source UUID={{ archive_disk_uuid }} --mountpoint {{ archive_disk_mount }}
@@ -21,13 +18,6 @@
       `mount {{ archive_disk_mount }}` on pve, then re-run.
     quiet: true
 
-# Local: a Proxmox "dir" storage on the archive drive, which vzdump writes to
-# and prunes with backup_prune. It also lists the dumps in the web UI, with a
-# Restore button. is_mountpoint makes Proxmox refuse to use it while the drive
-# is not mounted, so a missing drive can't fill the system SSD.
-# 0711, not 0700: vzdump of an unprivileged LXC runs tar as the container's
-# mapped root (uid 100000), which must be able to pass through this directory
-# to reach its temp dir under dump/. It still can't list or read anything.
 - name: Create the local backup directory
   ansible.builtin.file:
     path: "{{ backup_local_path }}"
@@ -55,7 +45,6 @@
   changed_when: false
   when: backup_storage_status.rc == 0
 
-# Off-site: restic to the Hetzner Storage Box, once it exists.
 - name: Set up restic for the Storage Box
   when: restic_enabled | bool
   block:
@@ -123,8 +112,6 @@
     group: root
     mode: "0750"
 
-# Publishes over the signal monitor's MQTT library and login, so it reports
-# nothing until that role has run (it's a no-op, not an error).
 - name: Install the backup report for Home Assistant
   ansible.builtin.template:
     src: cloudio-backup-report.sh.j2

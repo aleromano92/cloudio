@@ -41,7 +41,7 @@ def current():
             return json.loads(body)
         if code in (401, 403):
             return None
-        time.sleep(2)  # not up yet: a fresh container needs a few seconds
+        time.sleep(2)
     sys.exit("qBittorrent's API did not come up")
 
 
@@ -72,8 +72,6 @@ if prefs is None:
         sys.exit("qBittorrent still refuses the API after allowing localhost access")
 
 diff = {k: v for k, v in want.items() if prefs.get(k) != v}
-# qBittorrent only takes a schedule time with its hour and minute in the same
-# request; an hour on its own is silently ignored.
 for pair in TOGETHER:
     if any(k in diff for k in pair):
         diff.update({k: want[k] for k in pair if k in want})

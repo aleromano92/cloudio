@@ -5,19 +5,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-# Ookla's speedtest binary segfaults (std::logic_error, basic_string
-# null construct) if $HOME is unset -- true under a bare systemd unit
-# (no login shell), not over an interactive SSH session, which is why
-# this looked like an intermittent network failure until reproduced.
 Environment=HOME=/root
-# The router accepts one logged-in session at a time and answers an evicted
-# one with empty strings rather than an error, so two of our own jobs talking
-# to it at once would silently corrupt each other's readings. One lock, held
-# for as long as the job talks to the router.
-# Waits rather than skips: the sample is hourly, the night probe is minutes.
 ExecStart=/usr/bin/flock --wait 900 /run/lock/cloudio-zte.lock /usr/local/sbin/cloudio-signal-monitor.sh
-# Must cover the lock wait above plus the speedtest itself; systemd's default
-# start timeout is 90s, which the wait alone can exceed.
 TimeoutStartSec=1200
 Nice=10
 IOSchedulingClass=idle

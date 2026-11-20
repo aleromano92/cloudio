@@ -1,13 +1,4 @@
 ---
-# UniFi Network Application, via Docker, in its own unprivileged LXC — separate
-# from the media stack, so its 24/7 Mongo/Java footprint stays isolated.
-#
-# Native apt install was tried first (MongoDB 7 + openjdk-17 + Ubiquiti's own
-# apt repo). It failed: Ubiquiti's "ubiquiti" apt component was found
-# publishing an empty Packages file (the repo's signed InRelease listed its
-# MD5Sum as the hash of a zero-byte file) -- their repo, not a config bug here.
-# Docker (linuxserver.io's image) sidesteps depending on that repo entirely.
-
 - name: Provision the UniFi LXC and bring up its stack
   ansible.builtin.import_role:
     name: docker_lxc
@@ -63,14 +54,6 @@
   register: unifi_sysip_fix
   when: unifi_sysprops_exists.rc == 0
   changed_when: "'CHANGED' in unifi_sysip_fix.stdout"
-  # Left unset, the app auto-detects its own address for internal provisioning
-  # references -- inside Docker that often resolves to the container's internal
-  # bridge IP (e.g. 172.18.0.2), which an AP can never reach. Devices then check
-  # in fine (the published port works) but adoption hangs forever at
-  # adopted:true / adoption_completed:false. Found by testing directly against
-  # the real box, not assumed: verify with `docker logs unifi-network-application`
-  # for repeated "ucore/manifest ... Connection refused" (a harmless red herring)
-  # alongside "Device adoption - process not finished. Reason: timeout".
 
 - name: Restart the UniFi app container if system_ip was just set
   ansible.builtin.command: "pct exec {{ unifi_ctid }} -- docker restart unifi-network-application"

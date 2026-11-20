@@ -1,7 +1,4 @@
 ---
-# Home Assistant OS as a VM. See docs/adr/0005.
-# Uses `qm` directly: importing a qcow2 image has no Ansible module equivalent.
-
 - name: Check whether the HAOS VM already exists
   ansible.builtin.command: "qm status {{ haos_vmid }}"
   register: haos_status
@@ -46,8 +43,6 @@
       ansible.builtin.command:
         cmd: "qm importdisk {{ haos_vmid }} /root/haos_ova-{{ haos_image_version }}.qcow2 {{ haos_vm_storage }}"
 
-    # NOTE: efidisk0 above allocated vm-<id>-disk-0, so the imported disk is
-    # disk-1. If `qm importdisk` reports a different name, adjust scsi0 below.
     - name: Attach the imported disk as the boot disk
       ansible.builtin.command:
         cmd: >-
@@ -58,16 +53,6 @@
     - name: Grow the disk
       ansible.builtin.command:
         cmd: "qm disk resize {{ haos_vmid }} scsi0 {{ haos_vm_disk_size }}"
-
-# --- Optional: USB coordinator passthrough --------------------------------
-# The BTicino MyHOME integration talks to a *network* gateway, so no USB device
-# is needed for it. If you later add a Zigbee stick, set haos_usb_coordinator_id
-# in group_vars and uncomment:
-#
-#    - name: Pass the USB coordinator through to HAOS
-#      ansible.builtin.command:
-#        cmd: "qm set {{ haos_vmid }} --usb0 host={{ haos_usb_coordinator_id }}"
-# -------------------------------------------------------------------------
 
 - name: Ensure the HAOS VM is running
   ansible.builtin.command: "qm start {{ haos_vmid }}"

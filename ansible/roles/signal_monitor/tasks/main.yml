@@ -1,12 +1,4 @@
 ---
-# 5G/LTE signal + speedtest sampling, plus a daily digest (file
-# always; email only if signal_email_enabled). See vars.yml for toggles.
-#
-# zte_router_enabled defaults to false in a fresh checkout: the router locks
-# logins out after 5 failed attempts (MAX_LOGIN_COUNT, seen in its own JS),
-# and this runs unattended on {{ signal_monitor_on_calendar }}
-# -- don't flip it on before vault_zte_router_password is the real password.
-
 - name: Install jq, msmtp, mosquitto-clients (Home Assistant over MQTT), nodejs (for npx serve)
   ansible.builtin.apt:
     name:
@@ -82,7 +74,6 @@
     mode: "0644"
   when: signal_monitor_enabled
 
-# The watchdog sources it once at start, hence the restart.
 - name: Install the Home Assistant MQTT library
   ansible.builtin.copy:
     src: ha-mqtt.sh
@@ -100,8 +91,6 @@
     mode: "0700"
   when: signal_monitor_enabled and ha_mqtt_enabled
 
-# Without this file every publish is a no-op, which is how
-# ha_mqtt_enabled: false turns publishing off.
 - name: Install the MQTT login for publishing to Home Assistant
   ansible.builtin.template:
     src: mosquitto_pub.j2
@@ -161,8 +150,6 @@
     daemon_reload: true
   when: signal_monitor_enabled and zte_router_enabled and band_schedule_enabled
 
-# Toggled both ways, so pausing the night sweep is a vars.yml change rather
-# than a manual systemctl that the next run would quietly undo.
 - name: Enable or pause the night band timer
   ansible.builtin.systemd:
     name: cloudio-band-night.timer

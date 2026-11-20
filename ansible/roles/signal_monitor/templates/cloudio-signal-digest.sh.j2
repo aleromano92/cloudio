@@ -1,6 +1,5 @@
 #!/bin/bash
-# Managed by Ansible (signal_monitor role). Summarises the last 24h of
-# metrics.jsonl into a text file, and -- if signal_email_enabled -- emails it.
+# Managed by Ansible (signal_monitor role).
 set -uo pipefail
 
 LOG_FILE="{{ signal_log_dir }}/metrics.jsonl"
@@ -15,7 +14,6 @@ if [ ! -s "$LOG_FILE" ]; then
   echo "cloudio signal digest — no data yet at $LOG_FILE" > "$OUT_FILE"
 else
   jq -s --arg since "$SINCE" '
-    # Readings are typed at collection (numbers, or null when absent).
     def numbers(f):
       map(f) | map(select(type == "number"));
     def avg(f):

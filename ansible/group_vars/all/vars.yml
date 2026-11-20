@@ -1,87 +1,40 @@
 ---
-# ============================================================================
-#  cloudio — variables you set before running the playbook.
-#  Secrets live in vault.yml (see vault.yml.example). Everything here is
-#  safe to commit. Anything marked CHANGE-ME must be filled in.
-# ============================================================================
-
-# --- Node / LAN -------------------------------------------------------------
-pve_ip: "192.168.7.10"          # static IP given to Proxmox at install
-pve_gateway: "192.168.7.1"      # router
+pve_ip: "192.168.7.10"
+pve_gateway: "192.168.7.1"
 lan_cidr: "192.168.7.0/24"
 timezone: "Europe/Rome"
-# Used for the host's own /etc/resolv.conf AND every LXC's --nameserver.
-# Deliberately points at the router itself (derived from pve_gateway, not a
-# second hardcoded IP) rather than public resolvers, since any future router
-# swap happens with physical access anyway (a `sed` across vars.yml + this
-# file covers it). The Proxmox installer only writes this once, at install
-# time, and never re-derives it on its own -- this task is what keeps it
-# actually matching pve_gateway.
 dns_nameservers:
   - "{{ pve_gateway }}"
 
-# --- Discrete GPU ---------------------------------------------------------
-blacklist_nvidia: true          # GeForce GT 740M is unused on this headless box
+blacklist_nvidia: true
 
-# --- Power cuts -----------------------------------------------------------
-# The UPS feeds the laptop, the Wildix switch and the USB disks (about 2 h at
-# 40 W); the 5G router has its own small UPS (~30 min). While the UPS is on
-# battery the guests keep running, so HA can still alert the phone; they are
-# shut down cleanly once the UPS flags low battery or has
-# power_watch_ups_min_runtime_minutes left, before the disks lose power.
-# If the UPS runs out (or can't be read) the laptop runs on its own battery
-# (88 min on 2026-10-04, with the battery at about half its design capacity),
-# with the switch dark: then the guests stop after power_watch_grace_minutes,
-# or once the laptop battery drops to the floor. They come back once mains has
-# been steady for power_watch_restore_minutes.
 power_watch_ups_min_runtime_minutes: 20
 power_watch_grace_minutes: 10
-power_watch_min_battery: 30     # percent
+power_watch_min_battery: 30
 power_watch_restore_minutes: 2
-power_watch_ac: "ACAD"          # /sys/class/power_supply/ names on the Vaio
+power_watch_ac: "ACAD"
 power_watch_battery: "BAT1"
 
-# --- UPS ------------------------------------------------------------------
-# Eaton 5E 1200 G2 (660 W) on USB, read by NUT as ups_name@localhost; Home
-# Assistant's NUT integration reads it at pve_ip:3493.
 ups_name: "eaton"
 ups_desc: "Eaton 5E 1200 G2: pve, Wildix switch, USB disks"
 ups_vendorid: "0463"
 ups_productid: "ffff"
 
-# --- External media drive -------------------------------------------------
-# Format the USB drive ext4, then:  blkid /dev/sdX1   -> copy the UUID here.
-# While this is CHANGE-ME the playbook creates the mount point but does NOT
-# mount anything, and the media LXC's /data bind-mount will be empty.
-media_disk_uuid: "ff49648b-d4e6-4628-bb08-87b8dd117fad"   # WD My Book 16 TB (WD160EDGZ), ext4, label "media"
-media_disk_mount: "/mnt/media"  # where it mounts on the Proxmox host
+media_disk_uuid: "ff49648b-d4e6-4628-bb08-87b8dd117fad"
+media_disk_mount: "/mnt/media"
 
-# --- Archive drive ----------------------------------------------------------
-# The old 2 TB NAS disk (WD20EARX, USB). Holds the family's photos and personal
-# files (precious, kept until a NAS exists) and the local backups under
-# backup_local_path. Only the large ext4 partition is mounted.
 archive_disk_uuid: "8508aa01-205a-4e42-bb70-42b2aef563cd"
 archive_disk_mount: "/mnt/archive"
 
-# --- Backups -----------------------------------------------------------
-# Nightly vzdump of every guest to the archive drive, kept by Proxmox's own
-# retention. The off-site restic push to the Hetzner Storage Box switches on
-# by itself once restic_storagebox_user is set (needs vault_restic_password).
 backups_enabled: true
 restic_enabled: "{{ restic_storagebox_user != 'uXXXXXX' }}"
 
-# --- Local backup target -------------------------------------------------
-# A Proxmox "dir" storage on the archive drive; is_mountpoint stops vzdump
-# from writing to the system SSD when the drive is not mounted. About 15 GB
-# per night (first run 2026-10-04: HA 4.2, media 8.2, unifi 1.9, stagista
-# 0.9), so this retention needs roughly 200 GB.
 backup_local_path: "{{ archive_disk_mount }}/cloudio-backup"
 backup_storage_id: "archive-backup"
 backup_prune: "keep-daily=7,keep-weekly=4,keep-monthly=3"
 
-# --- Off-site backup: Hetzner Storage Box (restic over SFTP) -------------
-restic_storagebox_user: "uXXXXXX"                       # CHANGE-ME
-restic_storagebox_host: "uXXXXXX.your-storagebox.de"    # CHANGE-ME
+restic_storagebox_user: "uXXXXXX"
+restic_storagebox_host: "uXXXXXX.your-storagebox.de"
 restic_repo: "sftp:{{ restic_storagebox_host }}:/restic"
 restic_paths:
   - /etc/pve
@@ -90,27 +43,20 @@ restic_paths:
   - /etc/systemd/system
 restic_keep_daily: 7
 restic_keep_weekly: 4
-backup_on_calendar: "*-*-* 02:30:00"   # systemd OnCalendar expression
+backup_on_calendar: "*-*-* 02:30:00"
 
-# guests to vzdump nightly (their rootfs carries the app config/state)
 backup_guest_ids:
   - "{{ haos_vmid }}"
   - "{{ media_ctid }}"
   - "{{ unifi_ctid }}"
   - "{{ stagista_ctid }}"
 
-# --- Tailscale ----------------------------------------------------------
 tailscale_advertise_routes: "{{ lan_cidr }}"
 tailscale_extra_args: "--accept-dns=false"
 
-# --- LXC base template ------------------------------------------------
-# Debian 12 deliberately, NOT 13: trixie dropped openjdk-17 (UniFi needs it) and
-# MongoDB's apt repo lags new Debian codenames. Bump the point release as needed
-# from `pveam available --section system | grep debian`.
 lxc_template_storage: "local"
 lxc_template_file: "debian-12-standard_12.12-1_amd64.tar.zst"
 
-# --- HAOS VM -------------------------------------------------------------
 haos_vmid: 110
 haos_vm_name: "homeassistant"
 haos_vm_cores: 2
@@ -118,18 +64,14 @@ haos_vm_memory: 2048
 haos_vm_bridge: "vmbr0"
 haos_vm_storage: "local-lvm"
 haos_vm_disk_size: "32G"
-# Latest stable per the releases page (verify — takes 10s):
-# https://github.com/home-assistant/operating-system/releases
 haos_image_version: "18.2"
-# haos_usb_coordinator_id: "10c4:ea60"   # only if you add a USB Zigbee stick later
 
-# --- media LXC (Docker) -----------------------------------------------
 media_ctid: 112
 media_hostname: "media"
 media_lxc_cores: 4
 media_lxc_memory: 4096
 media_lxc_swap: 512
-media_lxc_disk_gb: 32          # Docker images, Jellyfin metadata and transcode temp files
+media_lxc_disk_gb: 32
 media_lxc_storage: "local-lvm"
 media_lxc_bridge: "vmbr0"
 media_lxc_ip: "192.168.7.12/24"
@@ -143,73 +85,48 @@ media_appdata_services:
   - qbittorrent
   - jellyfin
   - caddy
-# Public names Caddy serves HTTPS under; the ddns role keeps every name in
-# ddns_records pointing at the home IP. Jellyfin is for friends; Home Assistant
-# is for the family's Companion apps, and is proxied to the HAOS VM (which is
-# on port 80, not 8123).
 jellyfin_public_host: "jellyfin.{{ ddns_domain }}"
 ha_public_host: "home.{{ ddns_domain }}"
 ha_upstream: "192.168.7.11:80"
-# qBittorrent settings, applied through its web API after every deploy by
-# media-stack/qbittorrent-configure.py, so a rebuilt container comes back
-# configured the same way (its own config file is rewritten on every exit, so
-# it can't be the source of truth). Speeds are bytes/s: that's the API's unit,
-# whatever its docs say (the factory alternative limit reads back as 10240).
-# Seed everything, forever, but slowly, all day: the Router has no queue
-# management, so any upload near the 5G cell's capacity (~45-130 Mbps) adds
-# latency for the whole house. On 2026-11-15 YouTube lagged on Wi-Fi while
-# seeding at ~42 Mbps. Ping to 1.1.1.1 averaged 55 ms (peaks 170) at 42 Mbps,
-# 34 ms (peaks 130) at 12 Mbps, and 19 ms (peaks 38) at under 1 Mbps.
-# Download is capped at 100 Mbps on weekdays 08:30-19:00, leaving the rest of
-# the 5G cell for work. Unlimited data SIM, so volume isn't a constraint.
 qbittorrent_preferences:
-  queueing_enabled: false              # every torrent seeds at once (was 7)
-  max_ratio_enabled: false             # never stop seeding (was: stop at ratio 1.5)
+  queueing_enabled: false
+  max_ratio_enabled: false
   max_ratio: -1
   max_seeding_time_enabled: false
   max_inactive_seeding_time_enabled: false
-  max_uploads: 100                     # upload slots across all torrents (was 20)
-  max_uploads_per_torrent: 20          # was 7
-  max_connec: 200                      # peer connections overall (was 500): spare the 5G router's NAT table
-  max_connec_per_torrent: 50           # was 100; ~80 peers in use across 63 torrents on 2026-11-10
-  limit_tcp_overhead: true             # caps count protocol overhead, so they hold on the wire
+  max_uploads: 100
+  max_uploads_per_torrent: 20
+  max_connec: 200
+  max_connec_per_torrent: 50
+  limit_tcp_overhead: true
   limit_utp_rate: true
-  up_limit: 524288                     # 512 KiB/s, ~4 Mbps on the wire (was 5 MiB/s nights and weekends)
-  dl_limit: 0                          # unlimited outside weekday work hours
-  alt_up_limit: 524288                 # same as up_limit: the schedule only caps download
-  alt_dl_limit: 12499968               # 100 Mbps (12207 KiB/s: qBittorrent keeps whole KiB), weekday work hours
-  scheduler_enabled: true              # alt limits apply Monday-Friday 08:30-19:00 (container TZ)
-  scheduler_days: 1                    # 0 every day, 1 weekdays, 2 weekends
+  up_limit: 524288
+  dl_limit: 0
+  alt_up_limit: 524288
+  alt_dl_limit: 12499968
+  scheduler_enabled: true
+  scheduler_days: 1
   schedule_from_hour: 8
   schedule_from_min: 30
   schedule_to_hour: 19
   schedule_to_min: 0
-  listen_port: 6881                    # forwarded, TCP and UDP, by the ZTE
+  listen_port: 6881
   upnp: false
-  file_pool_size: 500                  # open files at once (was 100): a 107-file pack among 30+ torrents
-  # Browser-side protections for the WebUI, on by default and found off. With
-  # CSRF off, any page open in the same browser as a logged-in WebUI could send
-  # it commands, including a program to run on completion. Radarr/Sonarr use
-  # the API without browser headers, so they're unaffected.
+  file_pool_size: 500
   web_ui_csrf_protection_enabled: true
   web_ui_clickjacking_protection_enabled: true
-# subdirectories to create on the media drive (inside the container: /data/...)
-# torrents/ is where qBittorrent saves (DefaultSavePath=/data/torrents in its
-# own config); it shares the filesystem with media/ so the *arr apps hardlink
-# finished downloads into the library instead of copying them.
 media_data_subdirs:
   - media/movies
   - media/tv
   - media/music
   - torrents
 
-# --- UniFi LXC (Docker: unifi-network-application + a dedicated Mongo) -----
 unifi_ctid: 113
 unifi_hostname: "unifi"
 unifi_lxc_cores: 2
 unifi_lxc_memory: 2048
 unifi_lxc_swap: 512
-unifi_lxc_disk_gb: 16          # Docker images + Mongo's WiredTiger data add up
+unifi_lxc_disk_gb: 16
 unifi_lxc_storage: "local-lvm"
 unifi_lxc_bridge: "vmbr0"
 unifi_lxc_ip: "192.168.7.13/24"
@@ -220,154 +137,81 @@ unifi_mongo_user: "unifi"
 unifi_mongo_dbname: "unifi"
 unifi_mongo_authsource: "admin"
 
-# --- Dynamic DNS ------------------------------------------------------------
-# The 5G operator changes the home IP several times a day. A job on pve keeps
-# every name in ddns_records (under ddns_domain) pointing at it through the
-# Vercel DNS API (the domain's DNS is hosted on Vercel). Streams go straight
-# from home and HTTPS terminates here: the DNS host only ever learns the IP.
-# Needs vault_vercel_token.
 ddns_enabled: true
 ddns_domain: "aleromano.com"
-ddns_records: ["jellyfin", "home"]   # all A records, all set to the same IP
-ddns_ttl: 60                    # Vercel's minimum; how long clients may cache a stale IP
+ddns_records: ["jellyfin", "home"]
+ddns_ttl: 60
 ddns_check_seconds: 60
-ddns_vercel_team_id: ""         # only if the domain belongs to a Vercel team, not the personal account
-# Run on pve whenever the public IP changes (empty = nothing). Trackers keep
-# handing out the old address until each torrent's next routine announce
-# (30-60 min), and qBittorrent can't notice the change itself from behind
-# Docker and the router; this makes every torrent announce the new one at once.
+ddns_vercel_team_id: ""
 ddns_on_ip_change: >-
   pct exec {{ media_ctid }} -- docker exec qbittorrent
   curl -sf -X POST --data hashes=all http://localhost:8080/api/v2/torrents/reannounce
 
-# --- stagista LXC ("the intern": Claude Code for infrastructure work) -------
-# Where Cloudio is worked on, so a session doesn't depend on a laptop staying
-# awake: SSH in (LAN or Tailscale) and you land in a persistent tmux session
-# running Claude Code, signed in with the owner's Claude subscription. It
-# reaches pve over SSH as root, like a laptop would, so it's tidiness and
-# reproducibility, not a security boundary. The vault password is never
-# stored here: playbooks are still run by a human typing it.
 stagista_ctid: 114
 stagista_hostname: "stagista"
 stagista_lxc_cores: 2
-stagista_lxc_memory: 4096  # 2048 OOM-killed remote-control with ~9 sessions (2026-10-07)
+stagista_lxc_memory: 4096
 stagista_lxc_swap: 1024
-stagista_lxc_disk_gb: 40   # 16 filled up building two Docker images at once (2026-10-29)
+stagista_lxc_disk_gb: 40
 stagista_lxc_storage: "local-lvm"
 stagista_lxc_bridge: "vmbr0"
 stagista_lxc_ip: "192.168.7.14/24"
-# Debian 13, not the repo-wide 12: nothing here needs UniFi's older Java or
-# MongoDB, and 13's Python runs current Ansible, matching a laptop's.
 stagista_template_file: "debian-13-standard_13.6-1_amd64.tar.zst"
 stagista_user: "aromano"
-# Where the repos live, and where Remote Control sessions start. Not the home
-# folder itself: Claude Code never remembers trust for a home folder, and the
-# Remote Control server has no terminal to ask on.
 stagista_workdir: "/home/{{ stagista_user }}/code"
-# Folders in stagista_workdir that each get a standing Remote Control server
-# (claude-remote-control@<folder>), so each shows up on its own when starting
-# a session from claude.ai/code or the Claude app. Each needs trusting once.
 stagista_rc_projects:
   - aleromano.com
   - cloudio
   - ilovefruit
 stagista_git_name: "Alessandro Romano"
 stagista_git_email: "alessandro.romano1992@gmail.com"
-stagista_repo_https: "https://github.com/aleromano92/cloudio.git"   # public: cloning needs no key
-stagista_repo_ssh: "git@github.com:aleromano92/cloudio.git"        # pushing uses stagista's GitHub account key
-# Public keys allowed to SSH in as stagista_user (public halves only).
+stagista_repo_https: "https://github.com/aleromano92/cloudio.git"
+stagista_repo_ssh: "git@github.com:aleromano92/cloudio.git"
 stagista_authorized_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGFWOlwyVgrOCbpi+5VjpvzEKp0IvG080gKC8x7Fthmu macbook"
-# Hosts it gets its own keys for (generated inside the container, never copied
-# in). Public halves are authorised by hand or by this role (pve).
 stagista_hetzner_host: "188.245.236.17"
 stagista_hetzner_user: "axel"
 
-# --- 5G/LTE signal + speedtest monitoring ---------------------------------
-# Samples on signal_monitor_on_calendar to signal_log_dir/metrics.jsonl,
-# plus a daily digest under signal_log_dir/digests/ (file always written;
-# email only if signal_email_enabled).
 signal_monitor_enabled: true
-# systemd OnCalendar. Hourly at :57 -- a fixed minute keeps samples on a
-# predictable grid, which matters for comparing the same hour across nights.
 signal_monitor_on_calendar: "*-*-* *:57:00"
 signal_log_dir: "/var/log/cloudio-signal"
-# Static dashboard (files/dashboard.html) served read-only via `npx serve`,
-# reachable at http://<pve_ip>:{{ signal_web_port }} or over Tailscale. No
-# auth -- it's read-only speedtest/signal numbers, not sensitive.
 signal_web_port: 8420
 ookla_speedtest_version: "1.2.0"
 
-# ZTE MC801A router polling (login via goform_set_cmd_process, hashed
-# client-side). Leave false until vault_zte_router_password is the real
-# admin password -- the router locks logins out after 5 failed attempts
-# (MAX_LOGIN_COUNT), and this runs unattended.
 zte_router_enabled: true
 zte_router_ip: "192.168.7.1"
 
-# Every sample, and the watchdog's uplink state, also go to Home Assistant as
-# the "Router 5G" device over MQTT (ADR-0012), into the Mosquitto add-on. Its
-# login is set by hand in the add-on's options (HA's side is State), with the
-# same password as vault_ha_mqtt_password.
 ha_mqtt_enabled: true
 ha_mqtt_host: "192.168.7.11"
 ha_mqtt_port: 1883
 ha_mqtt_user: "cloudio-pve"
 
-# --- Nightly band scheduling ----------------------------------------------
-# The serving mast goes out of service overnight (LTE anchor and NR both), and
-# the modem falls back to a distant one, so the daytime lock points at a band
-# that isn't there. At night every band is unlocked, each candidate is measured
-# in turn, and the best one that actually has service is locked; in the morning
-# the daytime pair goes back. Needs zte_router_enabled.
 band_schedule_enabled: true
-# The night sweep. Paused for the aggregation experiment below: with B3/B20 in
-# the day set, losing B1 at midnight should cost one carrier, not the link.
 band_night_enabled: false
 band_night_on_calendar: "*-*-* 00:30:00"
 band_day_on_calendar: "*-*-* 07:13:00"
-# Probed in order at night. B7 is included for completeness but is the least
-# likely to reach a distant mast; B20/B28 are the long-reach ones.
 band_night_candidates: [1, 3, 7, 20, 28]
-# Experiment from 2026-09-19, 3 days + 3 nights: B1+B3+B20 are the three bands
-# seen on the home mast (7b1e2), locked together so the modem can aggregate
-# them. Before that the day lock was B1 alone (~330 down / 42 up). Revert to
-# [1] and band_night_enabled: true if it's slower by day.
 band_day_lte: [1, 3, 20]
 band_day_nr: 78
-# Seconds to let the modem re-register after each band change. It answers every
-# field blank while re-registering, so the settle is followed by a retry loop --
-# a blank reading would otherwise look like "this band has no coverage".
 band_settle_seconds: 45
 band_status_tries: 6
 band_status_delay_seconds: 10
 band_reboot_wait_seconds: 150
-# Must cover: reboot + one settle+retries per candidate + slack.
 band_night_timeout_seconds: 1800
 
-# --- Uplink watchdog ------------------------------------------------------
-# Pings from pve decide "down" (the router reports itself attached while
-# passing nothing); then AUTO -> known-good LTE band -> modem reboot, stopping
-# at the first that brings traffic back. Needs zte_router_enabled.
 watchdog_enabled: true
-watchdog_targets: ["1.1.1.1", "8.8.8.8"]   # down = all of them fail
+watchdog_targets: ["1.1.1.1", "8.8.8.8"]
 watchdog_interval_seconds: 10
-watchdog_fail_threshold: 3                  # ~30s to declare an outage
-watchdog_step_wait_seconds: 45              # per rung, before trying the next
-watchdog_known_good_lte: [20]               # the band proven good overnight
+watchdog_fail_threshold: 3
+watchdog_step_wait_seconds: 45
+watchdog_known_good_lte: [20]
 watchdog_reboot_cooldown_minutes: 45
-# Hourly speedtests failing in a row, while pings pass, before the modem is
-# rebooted anyway. Single failures happen (three on 2026-10-13); a stalled link
-# fails every hour (2026-10-15, nine hours until a manual reboot).
 watchdog_speedtest_fail_threshold: 3
 
-# Daily digest email via msmtp. Leave false until an SMTP relay exists (e.g.
-# a Gmail app password) -- the text digest under signal_log_dir/digests/
-# always gets written regardless of this.
 signal_email_enabled: false
 signal_email_to: "CHANGE-ME@example.com"
 signal_email_from: "cloudio@pve.local"
-signal_email_smtp_host: "CHANGE-ME"          # e.g. smtp.gmail.com
+signal_email_smtp_host: "CHANGE-ME"
 signal_email_smtp_port: 587
 signal_email_smtp_user: "CHANGE-ME"
-signal_digest_calendar: "*-*-* 08:00:00"     # systemd OnCalendar expression
+signal_digest_calendar: "*-*-* 08:00:00"

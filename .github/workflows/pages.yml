@@ -1,11 +1,5 @@
 name: Deploy learn/ to GitHub Pages
 
-# Publishes the learn/ folder as the site root, so the course is served at
-# https://aleromano92.github.io/cloudio/  (nothing else in the repo is exposed).
-#
-# One-time setup: repo Settings -> Pages -> Source -> "GitHub Actions".
-# After that, every push that touches learn/ redeploys automatically.
-
 on:
   push:
     branches: [master]

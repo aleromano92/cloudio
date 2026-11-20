@@ -1,35 +1,16 @@
-# Shared by the signal monitor and the watchdog: publishing the Router's
-# readings to Home Assistant over MQTT (ADR-0012). The node stays the Router's
-# only client; HA only ever hears about it from here.
-#
-# Fire-and-forget on purpose. A broker that's down costs HA a gap, never a
-# sample: metrics.jsonl stays the complete record. Nothing here fails its
-# caller, and nothing is queued for replay.
-#
-# The broker address and login live in mosquitto_pub's own options file
-# (root-only), so the password never appears on a command line. Without that
-# file every publish is a no-op.
-
 HA_MQTT_CONFIG_HOME=/etc/cloudio-signal-monitor/mqtt
 HA_ROUTER_DISCOVERY_TOPIC=homeassistant/device/cloudio_router/config
 HA_ROUTER_STATE_TOPIC=cloudio/router/state
 HA_UPLINK_TOPIC=cloudio/router/uplink
-# Two missed hourly samples, then HA shows the Router's readings as
-# unavailable instead of the last good value forever.
 HA_ROUTER_EXPIRE_SECONDS=7200
-# The watchdog's heartbeat is once a minute.
 HA_UPLINK_EXPIRE_SECONDS=180
 
-# ha_mqtt_pub TOPIC PAYLOAD. Retained, so HA has the latest value straight
-# after its own restart rather than waiting for the next publish.
 ha_mqtt_pub() {
   [ -r "$HA_MQTT_CONFIG_HOME/mosquitto_pub" ] || return 0
   XDG_CONFIG_HOME=$HA_MQTT_CONFIG_HOME timeout 10 \
     mosquitto_pub -q 1 -r -t "$1" -m "$2" >/dev/null 2>&1 || true
 }
 
-# The configured LTE lock as the dashboard on :8420 shows it: "B1+B3+B20",
-# or AUTO for the firmware's all-bands mask. Prints nothing for no reading.
 ha_lte_lock_label() {
   local mask=$1 band bands=()
   [[ $mask =~ ^0x[0-9a-fA-F]+$ ]] || return 0
@@ -39,9 +20,6 @@ ha_lte_lock_label() {
   if [ "${#bands[@]}" -gt 8 ]; then echo AUTO; else (IFS=+; echo "${bands[*]}"); fi
 }
 
-# One device-based discovery message for the whole Router: every entity, and
-# the device they belong to. Republished with every sample, so a broker that
-# lost its retained messages heals itself within the hour.
 ha_router_discovery() {
   jq -nc \
     --arg state "$HA_ROUTER_STATE_TOPIC" --arg uplink "$HA_UPLINK_TOPIC" \
@@ -82,9 +60,6 @@ ha_router_discovery() {
     }'
 }
 
-# ha_router_state SAMPLE -- one metrics.jsonl line, flattened to the fields
-# the discovery message reads. A half that failed (login, speedtest) leaves
-# its fields null, which HA shows as unknown rather than a fake zero.
 ha_router_state() {
   local sample=$1 lock
   lock=$(ha_lte_lock_label "$(printf '%s' "$sample" | jq -r '.zte.lte_band_lock // empty')")
@@ -109,8 +84,6 @@ ha_router_state() {
     }'
 }
 
-# ha_publish_sample SAMPLE -- discovery first, so a fresh HA knows the
-# entities before their first state arrives.
 ha_publish_sample() {
   ha_mqtt_pub "$HA_ROUTER_DISCOVERY_TOPIC" "$(ha_router_discovery)"
   ha_mqtt_pub "$HA_ROUTER_STATE_TOPIC" "$(ha_router_state "$1")"

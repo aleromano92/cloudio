@@ -1,8 +1,4 @@
 ---
-# stagista: an LXC where Claude Code does the infrastructure work, so a session
-# lives on the server instead of on a laptop that might sleep. See the
-# stagista_* block in group_vars/all/vars.yml.
-
 - name: Provision the stagista LXC (no Docker)
   ansible.builtin.import_role:
     name: docker_lxc
@@ -40,8 +36,6 @@
   register: stagista_packages
   changed_when: "stagista_packages.stdout | trim == 'CHANGED'"
 
-# Passwordless sudo inside the container: the agent already holds root SSH to
-# the host, so a sudo password here would guard nothing.
 - name: Create the stagista user
   ansible.builtin.command:
     argv:
@@ -58,8 +52,6 @@
   register: stagista_useradd
   changed_when: "stagista_useradd.stdout | trim == 'CHANGED'"
 
-# Files inside the container are written through base64, so their content
-# survives every layer of quoting, and only rewritten when they differ.
 - name: Write the stagista config files
   ansible.builtin.command:
     argv:
@@ -78,8 +70,6 @@
         rm -f "$new"
         echo CHANGED
   loop:
-    # The template ships LANG=C, and under a non-UTF-8 locale tmux shows every
-    # non-ASCII character (Claude Code's whole interface) as "_".
     - path: /etc/default/locale
       content: "LANG=\"C.UTF-8\"\n"
       mode: "0644"
@@ -121,8 +111,6 @@
   register: stagista_files
   changed_when: "stagista_files.stdout | trim == 'CHANGED'"
 
-# Debian 13's template starts sshd per connection from ssh.socket, and each one
-# reads the config afresh; only a long-running ssh.service needs a reload.
 - name: Reload sshd after a config change
   ansible.builtin.command: >-
     pct exec {{ stagista_ctid }} -- bash -c
@@ -133,8 +121,6 @@
   ansible.builtin.command: "pct exec {{ stagista_ctid }} -- bash -c 'chown {{ stagista_user }}: /home/{{ stagista_user }}/.ssh && chmod 700 /home/{{ stagista_user }}/.ssh'"
   changed_when: false
 
-# One key per destination, generated here: the private halves never leave the
-# container, and each can be revoked without touching any other machine.
 - name: Generate stagista's SSH keys
   ansible.builtin.command:
     argv:
@@ -188,8 +174,6 @@
   register: stagista_claude
   changed_when: "stagista_claude.stdout | trim == 'CHANGED'"
 
-# pipx rather than Debian's package: Debian's Ansible lags, and the playbooks
-# are written against the current release, as run from a laptop.
 - name: Install Ansible for the stagista user
   ansible.builtin.command:
     argv:
@@ -207,8 +191,6 @@
   register: stagista_ansible
   changed_when: "stagista_ansible.stdout | trim == 'CHANGED'"
 
-# Cloned over HTTPS (the repo is public, so no key is needed to read it);
-# pushes go over SSH with stagista's GitHub key, which must be added first.
 - name: Clone the cloudio repo and push over SSH
   ansible.builtin.command:
     argv:
@@ -225,7 +207,6 @@
         changed=UNCHANGED
         w={{ stagista_workdir }}
         mkdir -p "$w"
-        # the first build cloned into ~/cloudio, before the workdir existed
         if [ -d ~/cloudio/.git ] && [ ! -e "$w/cloudio" ]; then mv ~/cloudio "$w/cloudio"; changed=CHANGED; fi
         if [ ! -d "$w/cloudio/.git" ]; then git clone -q {{ stagista_repo_https }} "$w/cloudio"; changed=CHANGED; fi
         cd "$w/cloudio"
@@ -237,9 +218,6 @@
   register: stagista_repo
   changed_when: "stagista_repo.stdout | trim == 'CHANGED'"
 
-# One server per project folder. Each is started only once Claude is signed
-# in and that folder trusted, both steps for a person at the terminal; before
-# that it would only crash-loop. The old single server in ~/code goes away.
 - name: Run a Remote Control server per project when Claude is ready
   ansible.builtin.command:
     argv:

@@ -1,9 +1,5 @@
 #!/bin/bash
-# Managed by Ansible (signal_monitor role). Runs at {{ band_day_on_calendar }}.
-#
-# Puts the daytime lock back after cloudio-band-night.sh has been free to roam:
-# LTE B{{ band_day_lte | join('+B') }} and NR n{{ band_day_nr }}, the combination chosen
-# for daytime. Several LTE bands in one lock let the modem aggregate them.
+# Managed by Ansible (signal_monitor role).
 set -uo pipefail
 
 . /usr/local/lib/cloudio/zte-session.sh

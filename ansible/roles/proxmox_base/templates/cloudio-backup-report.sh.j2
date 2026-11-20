@@ -1,22 +1,5 @@
 #!/usr/bin/env bash
-# Managed by Ansible (proxmox_base/backup.yml). Refine freely.
-#
-# Publishes the state of the local backups to Home Assistant over MQTT, as
-# the "Backups" device: for each guest, its newest dump, that dump's size and
-# how many are kept; for the archive drive, whether it's mounted and how much
-# room is left; and one "problem" flag for an alert to hang off. Runs after
-# every backup (ExecStopPost, so a failed run reports too) and hourly, so a
-# drive that drops off shows within the hour.
-#
-# It reads Proxmox, not the backup script: the storage's content list and
-# the vzdump task log both survive a reboot, and they count backups started
-# by hand from the web UI as well. While the drive is missing it goes by the
-# content list as last seen (kept in $DUMPS_CACHE), so a guest's newest dump
-# keeps ageing and turns stale. A night the timer fired but no vzdump started
-# (systemd skips the run when the drive isn't mounted) shows as "not started".
-#
-# Uses the signal monitor's MQTT library and login (ADR-0012). Without them
-# it publishes nothing.
+# Managed by Ansible (proxmox_base/backup.yml).
 set -uo pipefail
 
 HA_MQTT_LIB=/usr/local/lib/cloudio/ha-mqtt.sh
@@ -31,17 +14,11 @@ DISCOVERY_TOPIC=homeassistant/device/cloudio_backups/config
 STATE_TOPIC=cloudio/backups/state
 DRIVE_TOPIC=cloudio/backups/drive
 DUMPS_CACHE=/var/lib/cloudio/backup-report-dumps.json
-# A guest whose newest dump is older than this missed a night: 24 h plus the
-# timer's random delay and the length of a run.
 STALE_SECONDS=$(( 26 * 3600 ))
-# Three missed hourly reports, then HA shows the drive as unavailable rather
-# than the last good reading forever. The guests' state has no expiry: their
-# dump times already say how old they are.
 DRIVE_EXPIRE_SECONDS=10800
 
 now=$(date +%s)
 
-# Guest names as Proxmox knows them; a guest that's gone keeps its id.
 guests=$(pvesh get /cluster/resources --type vm --output-format json 2>/dev/null \
   | jq -c --argjson ids "$GUEST_IDS" '
       (map({key: (.vmid | tostring), value: .name}) | from_entries) as $names
@@ -107,8 +84,6 @@ if mountpoint -q "$ARCHIVE"; then
   content=$(pvesh get "/nodes/pve/storage/$STORAGE/content" --output-format json 2>/dev/null) || content=null
 fi
 
-# Each guest's newest dump and how many it has, from the storage while the
-# drive is here, else as last seen.
 dumps=null
 if [ "$content" != null ]; then
   dumps=$(printf '%s' "$content" | jq -c '
@@ -124,12 +99,8 @@ elif [ -r "$DUMPS_CACHE" ]; then
   dumps=$(jq -c . "$DUMPS_CACHE" 2>/dev/null) || dumps=null
 fi
 
-# The newest vzdump task, whoever started it, unless the timer fired after it
-# started and the service isn't running now: then that night's run never
-# started.
 task=$(pvesh get /nodes/pve/tasks --typefilter vzdump --limit 1 --output-format json 2>/dev/null \
   | jq -c '.[0] // {}') || task='{}'
-# Empty when the timer has never fired ("n/a").
 trigger=$(date -d "$(systemctl show cloudio-backup.timer -P LastTriggerUSec)" +%s 2>/dev/null)
 active=$(systemctl is-active cloudio-backup.service 2>/dev/null)
 run=$(jq -nc --argjson t "$task" --arg trigger "$trigger" --arg active "$active" '
@@ -144,8 +115,6 @@ run=$(jq -nc --argjson t "$task" --arg trigger "$trigger" --arg active "$active"
 
 ha_mqtt_pub "$DISCOVERY_TOPIC" "$(discovery)"
 
-# With no dumps list at all (drive missing and never seen) the guests' last
-# published state stays retained on the broker.
 guest_state=null
 if [ "$dumps" != null ]; then
   guest_state=$(jq -nc --argjson dumps "$dumps" --argjson guests "$guests" --argjson now "$now" \

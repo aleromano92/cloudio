@@ -1,14 +1,3 @@
-# UniFi stack — runs inside the `unifi` LXC, deployed by ansible/roles/unifi_lxc.
-#
-# Two containers: unifi-db (a dedicated MongoDB 7 — separate from anything in
-# the media stack) and unifi-network-application (linuxserver.io's image).
-# Native apt install was tried first; Ubiquiti's own "ubiquiti" apt component
-# was found publishing an empty Packages file (see git history) — their repo,
-# not this config. Docker sidesteps depending on it entirely.
-#
-# Credentials and paths come from .env (rendered by Ansible from group_vars +
-# vault). APPDATA lives on the LXC rootfs (captured by nightly vzdump).
-
 services:
   unifi-db:
     image: docker.io/mongo:7.0
@@ -41,10 +30,10 @@ services:
     volumes:
       - ${APPDATA}/unifi:/config
     ports:
-      - "8443:8443"        # admin web UI
-      - "3478:3478/udp"    # STUN
-      - "10001:10001/udp"  # AP discovery
-      - "8080:8080"        # device communication
+      - "8443:8443"
+      - "3478:3478/udp"
+      - "10001:10001/udp"
+      - "8080:8080"
     restart: unless-stopped
     depends_on:
       - unifi-db

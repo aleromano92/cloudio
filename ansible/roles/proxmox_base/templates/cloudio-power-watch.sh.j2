@@ -1,30 +1,5 @@
 #!/usr/bin/env bash
 # Managed by Ansible (proxmox_base/power_watch.yml).
-#
-# Run by cloudio-power-watch.service. The node is a laptop on a UPS, read
-# through NUT as {{ ups_name }}@localhost, which also feeds the Wildix switch and the
-# USB disks; the 5G router has a small UPS of its own. Mains counts as lost
-# when the UPS is on battery (OB) or the laptop's adapter is offline (the UPS
-# ran out, or the laptop is unplugged from it).
-#
-# On UPS battery the guests keep running, so Home Assistant can still alert
-# the phone, until the UPS flags low battery (LB) or has {{ power_watch_ups_min_runtime_minutes }} min or less
-# left. Then this shuts every guest down cleanly, before the USB disks lose
-# power with the UPS.
-#
-# On the laptop's own battery the switch is dark and the guests serve nobody
-# (2026-10-04, before the UPS: mains lost 05:38, crash 07:06). After {{ power_watch_grace_minutes }} min
-# of that, or as soon as the laptop battery is down to {{ power_watch_min_battery }}%, this shuts every
-# guest down.
-#
-# The host itself stays up on purpose: a laptop that was powered off stays
-# off when mains comes back, while one whose battery ran flat boots by itself
-# (it did on 2026-10-04) and starts the onboot guests. When mains has been
-# back for {{ power_watch_restore_minutes }} min while the host is still up, this starts the onboot guests.
-#
-# A UPS that can't be read (driver down, cable out, or the UPS itself off)
-# gives no signal: the adapter alone decides then. Never stop the guests on a
-# guess. The "guests stopped" marker lives in /run, so a reboot clears it.
 set -uo pipefail
 
 UPS="{{ ups_name }}@localhost"
@@ -37,10 +12,10 @@ RESTORE=$(( {{ power_watch_restore_minutes }} * 60 ))
 STOPPED=/run/cloudio-power-watch.stopped
 NODE=$(hostname)
 
-on_battery_since=""   # mains lost: the UPS on battery, or the adapter offline
-on_laptop_since=""    # the adapter offline: the laptop on its own battery
+on_battery_since=""
+on_laptop_since=""
 on_mains_since=""
-ups_link=""           # last logged state of the UPS link: ok / unreadable
+ups_link=""
 ups_vars=""
 
 battery() { cat "$BAT" 2>/dev/null || echo "?"; }
@@ -63,8 +38,6 @@ stop_guests() {
 while true; do
   now=$(date +%s)
 
-  # upsc fails (empty output) when upsd is down, the driver has lost the UPS
-  # or its data is stale.
   ups_vars=$(upsc "$UPS" 2>/dev/null) || ups_vars=""
   status=$(ups_get ups.status)
   charge=$(ups_get battery.charge)
@@ -79,7 +52,6 @@ while true; do
     [ "$ups_link" != unreadable ] && echo "UPS unreadable; going by the laptop's adapter alone"
     ups_link=unreadable
   fi
-  # An unreadable adapter counts as mains.
   ac=$(cat "$AC" 2>/dev/null || echo 1)
 
   if [ "$ups_ob" = 1 ] || [ "$ac" = 0 ]; then

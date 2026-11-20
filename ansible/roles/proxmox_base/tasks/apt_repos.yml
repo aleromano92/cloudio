@@ -1,11 +1,4 @@
 ---
-# Proxmox ships with the enterprise repo (and, since PVE9, an enterprise Ceph
-# repo too) enabled by default -- both 401 without a paid subscription. PVE9
-# writes these in deb822 format (*.sources); older installs may still have the
-# legacy one-line *.list files. Find whichever exist and disable both kinds by
-# renaming (apt ignores anything not ending in .list/.sources), then add
-# pve-no-subscription.
-
 - name: Find enabled Proxmox/Ceph enterprise apt source files
   ansible.builtin.find:
     paths: /etc/apt/sources.list.d
@@ -29,7 +22,7 @@
     repo: "deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription"
     filename: pve-no-subscription
     state: present
-    update_cache: false   # packages.yml does the real `apt update`, with retries
+    update_cache: false
 
 - name: Remove the "no valid subscription" popup (cosmetic; safe to skip)
   ansible.builtin.replace:

@@ -1,5 +1,3 @@
-# --- Secrets (never commit plaintext) ---
-# NOTE: ansible/group_vars/all/vault.yml IS committed — it is ansible-vault encrypted.
 .vault_pass
 vault-password.txt
 *.decrypted
@@ -7,22 +5,18 @@ secrets.yml
 .env
 !.env.example
 
-# --- Ansible ---
 *.retry
 ansible/collections/
 ansible/*.log
 
-# --- Python / tooling ---
 __pycache__/
 *.pyc
 .venv/
 venv/
 
-# --- Editor / OS ---
 .DS_Store
 *.swp
 .idea/
 .vscode/
 
-# --- Logs ---
 *.log

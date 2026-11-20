@@ -44,8 +44,6 @@
   .info { position: relative; display: inline-block; width: 12px; height: 12px; margin-left: 4px;
     border: 1px solid #666; border-radius: 50%; color: #888; font-size: 9px; line-height: 11px;
     text-align: center; text-transform: none; cursor: help; }
-  /* Opens downwards: these icons sit at the top of the page, so opening upwards
-     runs the tip off the top of the window. */
   .info .tip { display: none; position: absolute; top: 130%; left: 0; width: 230px; text-align: left;
     background: #222; border: 1px solid #333; border-radius: 5px; padding: 8px 10px;
     font-size: 11.5px; line-height: 1.45; color: #ccc; text-transform: none; font-weight: 400;
@@ -116,28 +114,12 @@
   </div>
 
   <script>
-    // --- Readings ------------------------------------------------------------
-    // The collector writes typed readings (numbers, or null when absent), so
-    // "has a reading" is one rule everywhere.
     const Format = {
       value: v => (typeof v === "number" && Number.isFinite(v) ? v : null),
       number: v => String(Math.round(v * 10) / 10),
       signed: v => (v < 0 ? "−" + Math.abs(v) : String(v)),
     };
 
-    // --- Metric definitions ----------------------------------------------------
-    // The one place a metric's meaning lives: where it's read from, its unit,
-    // colour, explanation and quality bands. Stat tiles, chart hints, chart
-    // threshold lines and the table all derive from this.
-    //
-    // bands: `good` is where a reading turns fully green, `bad` where it turns
-    // fully red; in between it blends through amber. Direction follows from the
-    // two numbers, so lower-is-better metrics (ping, temperature) need no flag.
-    // Series colours are deliberately neutral: green, amber and red already mean
-    // good/bad on this page (tiles, threshold lines), so a line drawn in one of
-    // them reads as a verdict. Blue and grey carry identity only; checked with
-    // the dataviz validator on the #1a1a1a chart surface (normal-vision dE 26.8,
-    // colour-blind dE 23.4 between them). A chart's first series is blue.
     const SERIES = { first: "#3987e5", second: "#c9c9c9" };
 
     const TEMP_BANDS = { good: { at: 50, word: "cool" }, between: "warm", bad: { at: 75, word: "caution (est.)" } };
@@ -197,24 +179,15 @@
 
     const TABLE_METRICS = ["downloadMbps", "uploadMbps", "pingMs", "jitterMs", "nrRsrp", "nrSinr", "mdmTempC", "modem5gTempC"];
 
-    // Text readings: identity, not quantity. Never averaged or charted -- a
-    // change of site is the interesting event: enodeb_id identifies one 4G base
-    // station (an eNodeB), and cell_id's leading digits are that same id, so the
-    // two columns together separate a move between sectors of one site from a
-    // move to a different site altogether.
     const TEXT_COLUMNS = [
       { key: "mode", label: "Mode", read: r => r.zte?.network_type },
       { key: "bts", label: "Site", read: r => r.zte?.enodeb_id },
       { key: "cell", label: "4G cell", read: r => r.zte?.cell_id },
       { key: "band", label: "4G band", read: r => r.zte?.lte_band },
       { key: "lock", label: "4G band lock", read: r => lteLock(r.zte?.lte_band_lock) },
-      // Two n78 cells serve this house, ~26 dB apart: 1f at -71 dBm, 15 at -97.
-      // Which one the modem holds moves throughput more than the 4G lock does,
-      // so a fair comparison between locks is within one 5G cell.
       { key: "nrCell", label: "5G cell", read: r => r.zte?.nr5g_pci },
     ];
 
-    // The router reports the LTE lock as a bitmask (band N is bit N-1).
     function lteLock(mask) {
       if (!mask) return null;
       const bits = BigInt(mask);
@@ -223,12 +196,7 @@
       return bands.length > 8 ? "AUTO" : bands.join("+");
     }
 
-    // Fixed, domain-meaningful axes: auto-scaling misrepresents proportion, and
-    // a flat reading auto-scaled to its own range draws a degenerate axis.
-    // Different units get separate charts, never a dual axis.
     const CHARTS = [
-      // Upload's lines (5 and 50) would sit within a few pixels of 0 on this axis
-      // and bury download's; its thresholds still colour its tile and hint.
       { title: "Throughput", metrics: ["downloadMbps", "uploadMbps"], range: { min: 0, max: 1000 }, lines: ["downloadMbps"] },
       { title: "5G signal strength (dBm)", metrics: ["nrRsrp"], range: { min: -120, max: -60 } },
       { title: "5G signal quality (dB)", metrics: ["nrSinr"], range: { min: -10, max: 30 } },
@@ -258,7 +226,6 @@
       ];
     }
 
-    // Red at `bad`, amber halfway, green at `good`, clamped beyond either end.
     const GRADIENT = [[177, 84, 74], [217, 164, 65], [95, 168, 143]];
     function bandColor(metric, value) {
       const b = metric.bands;
@@ -268,10 +235,6 @@
       return `rgb(${from.map((c, i) => Math.round(c + (to[i] - c) * f)).join(",")})`;
     }
 
-    // --- Chart module ------------------------------------------------------------
-    // Draws one fixed-axis time series chart into a container. Owns its own
-    // size, geometry, threshold lines, empty state and hover tooltip; callers
-    // only supply readings aligned to `times`.
     const Chart = (() => {
       const NS = "http://www.w3.org/2000/svg";
       const W = 900, H = 180, PAD = 34;
@@ -294,9 +257,6 @@
         return tooltip;
       }
 
-      // Hovering anywhere over the chart snaps to the nearest sample that has a
-      // reading for this chart, so a failed collection run never blanks the
-      // tooltip when a real reading sits one sample over.
       function hover(svg, times, series) {
         const tip = tooltipEl();
         const n = times.length;
@@ -321,8 +281,6 @@
             .map(s => `<div>${s.label}: ${Format.number(s.values[i])} ${s.unit}</div>`);
           tip.innerHTML = `<div class="tt-time">${new Date(times[i]).toLocaleString()}</div>${lines.join("")}`;
           tip.style.display = "block";
-          // Measured after display:block (a hidden element has zero size), then
-          // flipped to the other side of the cursor if it would leave the viewport.
           const tw = tip.offsetWidth, th = tip.offsetHeight;
           let left = e.clientX + 14, top = e.clientY + 14;
           if (left + tw > window.innerWidth) left = e.clientX - tw - 14;
@@ -333,9 +291,6 @@
         svg.onmouseleave = () => { tip.style.display = "none"; };
       }
 
-      // Ticks at local midnight and midday, so a reading can be placed in the
-      // day without hovering it. Positions come from the sample index, since
-      // that's what the x axis is.
       function timeTicks(times) {
         const half = t => Math.floor((new Date(t) - new Date(t).getTimezoneOffset() * 60000) / 43200000);
         const ticks = [];
@@ -407,16 +362,12 @@
       return { render };
     })();
 
-    // --- Page ----------------------------------------------------------------------
     function parseJsonl(text) {
       return text.split("\n").filter(Boolean).flatMap(line => {
         try { return [JSON.parse(line)]; } catch { return []; }
       });
     }
 
-    // logrotate keeps the older weeks next to the live file as .1.gz, .2.gz …
-    // Fetching and inflating those is what makes navigating back a week work;
-    // a missing file just ends the walk.
     async function fetchRotated() {
       if (!window.DecompressionStream) return [];
       const rows = [];
@@ -447,12 +398,6 @@
       });
     }
 
-    // Weeks run Monday to Sunday in the viewer's own timezone, since that's
-    // how the nights being compared are experienced.
-    // --- Watchdog outages --------------------------------------------------------
-    // watchdog-events.jsonl is written by cloudio-watchdog: a "down" when pings
-    // fail, a "step" per rung of the recovery ladder, an "up" when traffic flows
-    // again. One outage is everything from a "down" to the "up" that closes it.
     const FIXED_BY = {
       "auto": "4G bands unlocked (AUTO)",
       "known-good": "known-good band locked",
@@ -486,8 +431,6 @@
       return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
     }
 
-    // What the router said while the link was down: that's what separates "B1
-    // switched off" from "modem wedged" when reading these back.
     function routerSummary(r) {
       const parts = [r.network_type, r.wan_active_band, r.lte_rsrp != null ? `${r.lte_rsrp} dBm` : null,
         r.enodeb_id ? `mast ${r.enodeb_id}` : null].filter(Boolean);
@@ -599,8 +542,6 @@
 
       for (const chart of CHARTS) {
         const metrics = chart.metrics.map(key => METRICS[key]);
-        // Metrics sharing a chart but not thresholds (download/upload) get named,
-        // or two bare "or above: fast" sentences can't be told apart.
         const distinct = new Set(metrics.map(bandSentence).filter(Boolean)).size > 1;
         const hints = [...new Set([chart.note, ...metrics.map(m => [m.blurb, bandSentence(m) && (distinct ? `${m.label}: ` : "") + bandSentence(m)].filter(Boolean).join(" "))].filter(Boolean))];
 
@@ -621,8 +562,6 @@
       }
     }
 
-    // A tip on the rightmost tiles would run off the window; anchor it to the
-    // icon's right edge instead. Measured on open, since the layout reflows.
     document.addEventListener("mouseover", e => {
       const icon = e.target.closest?.(".info");
       if (!icon) return;

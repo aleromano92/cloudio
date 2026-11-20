@@ -1,9 +1,4 @@
 ---
-# A power cut takes the router down with the house while the laptop keeps
-# going on its battery, until it crashes when the battery is flat
-# (2026-10-04: 88 minutes). This shuts the guests down cleanly first and
-# starts them again when mains is back. See the script for why the host
-# itself stays up.
 - name: Install the power watch script
   ansible.builtin.template:
     src: cloudio-power-watch.sh.j2

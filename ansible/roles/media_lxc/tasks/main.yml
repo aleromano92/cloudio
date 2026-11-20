@@ -1,11 +1,4 @@
 ---
-# The media stack: one unprivileged LXC running Docker + docker-compose.
-# See docs/adr/0002 (config in git, state in backups).
-
-# The container is unprivileged, so user N inside it is user 100000+N on the
-# host, and its root has no rights over the drive's host-owned folders. The
-# folders are therefore created from the host, already owned by the host-side
-# id of the stack's user; the container never has to create anything there.
 - name: Create the media folders on the drive, owned by the stack's user
   ansible.builtin.file:
     path: "{{ item }}"
@@ -42,9 +35,6 @@
       - { src: "{{ playbook_dir }}/../media-stack/qbittorrent-configure.py", name: qbittorrent-configure.py, mode: "0755" }
       - { src: "{{ playbook_dir }}/../media-stack/arr-autoimport.py", name: arr-autoimport.py, mode: "0644" }
 
-# qBittorrent rewrites its own config file on every exit, so its settings are
-# applied through its web API instead, from qbittorrent_preferences in vars.yml.
-# Only what differs is changed; see media-stack/qbittorrent-configure.py.
 - name: Render qBittorrent's desired settings on the node
   ansible.builtin.copy:
     content: "{{ qbittorrent_preferences | to_nice_json }}\n"

@@ -1,10 +1,5 @@
 #!/bin/bash
-# Managed by Ansible (signal_monitor role). Appends one JSON line per run to
-# {{ signal_log_dir }}/metrics.jsonl: ZTE MC801A 5G/LTE signal + a speedtest
-# sample. Best-effort -- a failure in one half still logs the other half,
-# and this must never spam MAX_LOGIN_COUNT lockouts on the router (see the
-# zte_router_enabled gate in main, baked in at template time on purpose).
-#
+# Managed by Ansible (signal_monitor role).
 # Sourcing this file defines the functions without running a sample, so the
 # router session can be checked on its own:
 #   . /usr/local/sbin/cloudio-signal-monitor.sh
@@ -15,20 +10,8 @@ set -uo pipefail
 . /usr/local/lib/cloudio/zte-session.sh
 . /usr/local/lib/cloudio/ha-mqtt.sh
 
-# cell_id is the full E-UTRAN cell identity; its leading digits are the
-# enodeb_id (the site/BTS), so a change in enodeb_id means the modem moved to
-# a different mast, not just a different sector. ngbr_cell_info lists the
-# neighbours it could see at that moment, which is what says whether a better
-# cell existed at all. lte_band_lock/nr5g_band_lock are the configured lock, so
-# every sample says which band configuration it was taken under; the CA fields
-# stay empty unless the lock allows more than one LTE band.
 ZTE_FIELDS=network_type,lte_rsrp,lte_rsrq,lte_snr,lte_rssi,Z5g_rsrp,Z5g_SINR,wan_lte_ca,lte_ca_pcell_band,lte_ca_pcell_bandwidth,lte_multi_ca_scell_info,cell_id,enodeb_id,lte_pci,nr5g_pci,lte_band,wan_active_channel,nr5g_action_band,lte_band_lock,nr5g_band_lock,ngbr_cell_info,wan_ipaddr,pm_sensor_mdm,pm_modem_5g
 
-# Logs in to the router and prints one JSON object on stdout: the normalised
-# signal fields plus login_ok:true, or {login_ok:false, error:...}. Always
-# prints valid JSON; never exits non-zero. Typing and sentinel handling live in
-# the session library, so metrics.jsonl and the band scheduler agree on what a
-# missing reading looks like.
 zte_read_signal() {
   local router_ip=$1 password=$2 jar signal
   if [ -z "$password" ]; then
@@ -44,10 +27,6 @@ zte_read_signal() {
   fi
 
   signal=$(zte_status "$router_ip" "$jar" "$ZTE_FIELDS")
-  # The router keeps one session at a time: opening its web UI in a browser
-  # evicts this one, and an evicted session gets every field back blank rather
-  # than an error. One re-login tells that apart from a genuine loss of signal,
-  # which is worth recording as the null it is.
   if printf '%s' "$signal" | jq -e '.lte_rsrp == null and .wan_ipaddr == null' >/dev/null 2>&1; then
     zte_login "$router_ip" "$password" "$jar" >/dev/null 2>&1
     signal=$(zte_status "$router_ip" "$jar" "$ZTE_FIELDS")
@@ -61,15 +40,9 @@ zte_read_signal() {
   fi
 }
 
-# Prints one JSON object with the speedtest result, or null on failure.
-# One retry: since 2026-10-13 the test server's socket is sometimes dropped
-# mid-test ({"error":"Cannot read from socket: "}, exit 2), which would
-# otherwise cost the whole hour's sample. Errors go to the journal.
 speedtest_sample() {
   local raw attempt
   for attempt in 1 2; do
-    # The Ookla CLI prints its license/GDPR banner to stdout (not stderr) on
-    # first acceptance -- the JSON result is always the last line either way.
     raw=$(/usr/local/bin/speedtest --format=json --accept-license --accept-gdpr 2>&1 | tail -n 1)
     if printf '%s' "$raw" | jq -ce '{
       ping_ms: .ping.latency,
@@ -108,7 +81,6 @@ main() {
   sample=$(jq -nc --arg ts "$ts" --argjson zte "$zte" --argjson speedtest "$speedtest" \
     '{timestamp: $ts, zte: $zte, speedtest: $speedtest}')
   printf '%s\n' "$sample" >> "$log_dir/metrics.jsonl"
-  # After the file, so HA being unreachable can never cost the sample.
   ha_publish_sample "$sample"
 }
 

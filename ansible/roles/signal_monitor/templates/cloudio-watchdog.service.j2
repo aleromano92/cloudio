@@ -6,7 +6,6 @@ After=network-online.target
 [Service]
 Type=simple
 ExecStart=/usr/local/sbin/cloudio-watchdog.sh
-# It is the thing that recovers the link, so it must outlive its own bugs.
 Restart=always
 RestartSec=10
 Nice=5

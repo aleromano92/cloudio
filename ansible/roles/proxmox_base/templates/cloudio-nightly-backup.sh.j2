@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-# Managed by Ansible (proxmox_base/backup.yml). Refine freely.
-#
-# 1. vzdump each guest to the local backup storage, which prunes old dumps
-#    to its retention ({{ backup_prune }})
-{% if restic_enabled | bool %}
-# 2. restic backup: host config paths + the local dumps -> Hetzner Storage Box
-# 3. restic forget --prune to the retention policy
-{% endif %}
+# Managed by Ansible (proxmox_base/backup.yml).
 set -euo pipefail
 
 echo "=== $(date -Is) vzdump ==="

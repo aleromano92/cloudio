@@ -1,15 +1,3 @@
-# Media stack — runs inside the `media` LXC, deployed by ansible/roles/media_lxc.
-#
-# Paths and IDs come from .env (rendered by Ansible from group_vars):
-#   PUID, PGID, TZ, APPDATA=/opt/appdata, MEDIA=/data
-#
-# APPDATA lives on the LXC rootfs (captured by nightly vzdump).
-# MEDIA (/data) is the external USB drive, bind-mounted by the LXC; it holds
-#   /data/media/{movies,tv,music} and /data/torrents on ONE filesystem so the
-#   *arr apps can hardlink instead of copy. It is NOT backed up (disposable).
-#
-# Image tags are pinned. Bump them deliberately.
-
 services:
   jellyfin:
     image: jellyfin/jellyfin:10.11
@@ -21,23 +9,9 @@ services:
     volumes:
       - ${APPDATA}/jellyfin:/config
       - ${MEDIA}/media:/data/media
-    # Host networking, as the original macOS compose file recommended for Linux
-    # (Docker Desktop's VM is what ruled it out there). Client discovery (7359/udp
-    # broadcast) and DLNA (1900/udp multicast) don't cross Docker's bridge, and on
-    # the bridge Jellyfin sees Docker's addresses instead of clients' real ones,
-    # which decides who counts as local. The LXC has its own IP, so Jellyfin
-    # listens on 192.168.7.12 directly: 8096 web UI, 8920 https, 7359, 1900.
     network_mode: host
-    # Hardware transcoding (Intel Quick Sync — H.264 only on this CPU) needs the
-    # render node exposed to this unprivileged LXC first. Left off until that
-    # LXC config is added — see README "Hardware transcoding".
-    # devices:
-    #   - /dev/dri:/dev/dri
     restart: unless-stopped
 
-  # HTTPS in front of Jellyfin for friends outside the house; see Caddyfile.
-  # Host networking like Jellyfin: it reaches Jellyfin on 127.0.0.1 and takes
-  # 443 (forwarded by the ZTE) and 80 (LAN only) on 192.168.7.12.
   caddy:
     image: caddy:2.11.4
     container_name: caddy
@@ -48,7 +22,7 @@ services:
       - HA_UPSTREAM=${HA_UPSTREAM}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${APPDATA}/caddy/data:/data        # certificates and keys
+      - ${APPDATA}/caddy/data:/data
       - ${APPDATA}/caddy/config:/config
     restart: unless-stopped
 
@@ -67,7 +41,7 @@ services:
     restart: unless-stopped
 
   radarr:
-    image: linuxserver/radarr:latest   # original was unpinned; pin a real tag when convenient
+    image: linuxserver/radarr:latest
     container_name: radarr
     environment:
       - PUID=${PUID}
@@ -124,9 +98,6 @@ services:
       - "6881:6881/udp"
     restart: unless-stopped
 
-  # Imports the finished downloads Radarr and Sonarr can't match by name
-  # (Italian titles, "ROGUE CUT" and the like); see arr-autoimport.py. Reads
-  # their API keys from their config.xml, read-only. Logs: docker logs arr-autoimport
   arr-autoimport:
     image: python:3.13-alpine
     container_name: arr-autoimport

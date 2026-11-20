@@ -1,15 +1,5 @@
 #!/bin/bash
-# Managed by Ansible (ddns role). Runs every {{ ddns_check_seconds }}s from cloudio-ddns.timer.
-#
-# Keeps {{ ddns_records | join(', ') }} (under {{ ddns_domain }}) pointing at this house's public IPv4,
-# which the 5G operator changes several times a day, through the Vercel DNS API
-# ({{ ddns_domain }}'s DNS is hosted there). Only the IP ever leaves the house:
-# streams go direct, and HTTPS terminates here.
-#
-# Vercel is only called when the IP differs from the one last set, plus a
-# re-check every 30 minutes in case the record was edited by hand. When the IP
-# changes, ddns_on_ip_change also runs (qBittorrent re-announcing its torrents).
-# `--force` skips that shortcut and always asks Vercel.
+# Managed by Ansible (ddns role).
 set -uo pipefail
 
 # shellcheck disable=SC1091
@@ -29,7 +19,6 @@ mkdir -p "$STATE" "$(dirname "$CHANGES")"
 
 team_query() { [ -n "$TEAM" ] && printf '%s' "$1teamId=$TEAM"; }
 
-# Three independent services, so one being down doesn't stop an update.
 public_ip() {
   local url ip
   for url in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com; do
@@ -39,7 +28,6 @@ public_ip() {
   return 1
 }
 
-# vercel <method> <path> [json-body] -> body on stdout, non-zero unless 2xx
 vercel() {
   local method=$1 path=$2 body=${3:-} out code
   local -a data=()
@@ -52,12 +40,8 @@ vercel() {
   [[ $code == 2* ]]
 }
 
-# No IP means no uplink: the watchdog owns outages, so that's not an error here.
 ip=$(public_ip) || { echo "no public IP reachable, skipping"; exit 0; }
 
-# The on-change hook keys off its own record of the last IP it acted on, not
-# the DNS state: a Vercel outage shouldn't delay it, nor make it fire every
-# minute until Vercel is back. It doesn't fire on the very first run.
 announced=$(cat "$STATE/hook-ip" 2>/dev/null || true)
 if [ "$ip" != "$announced" ]; then
   if [ -n "$announced" ] && [ -n "$ON_IP_CHANGE" ]; then
@@ -80,8 +64,6 @@ if ! records=$(vercel GET "/v4/domains/$DOMAIN/records?limit=100$(team_query '&'
   echo "Vercel refused to list $DOMAIN records (token, scope or team id?): $records" >&2
   exit 1
 fi
-# Every name is brought to the same IP. One failing doesn't stop the others,
-# but the IP isn't recorded as done, so the next run retries them all.
 failed=0
 for name in "${NAMES[@]}"; do
   id='' current=''
