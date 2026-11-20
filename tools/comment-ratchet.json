@@ -1,0 +1,61 @@
+{
+  "ansible/group_vars/all/vault.yml.example": [
+    "# Copy this file to vault.yml, fill in real values, then encrypt it:",
+    "#",
+    "#   cp group_vars/all/vault.yml.example group_vars/all/vault.yml",
+    "#   $EDITOR group_vars/all/vault.yml",
+    "#   ansible-vault encrypt group_vars/all/vault.yml",
+    "#",
+    "# Run the playbook with:  ansible-playbook site.yml --ask-vault-pass",
+    "#",
+    "# The encrypted vault.yml IS committed. This .example file is the only",
+    "# plaintext one and contains no real secrets.",
+    "# Tailscale one-off auth key: https://login.tailscale.com/admin/settings/keys",
+    "# A reusable or ephemeral key is fine.",
+    "# restic repository password. Generate a long random string and STORE IT IN",
+    "# YOUR PASSWORD MANAGER. Lose it and the off-site backups are unrecoverable.",
+    "# UniFi's dedicated MongoDB — two separate random strings, saved in your",
+    "# password manager too (though these are less catastrophic to lose: worst",
+    "# case is recreating the LXC).",
+    "# ZTE MC801A router admin password (plaintext here -- the monitor script",
+    "# hashes it client-side the same way the router's own web UI does before",
+    "# ever sending it). Only used if zte_router_enabled: true.",
+    "# Login the node publishes to HA's Mosquitto add-on with (user ha_mqtt_user).",
+    "# Must match the add-on's \"logins\" option. Only used if ha_mqtt_enabled: true.",
+    "# SMTP relay password for the daily signal digest email (e.g. a Gmail app",
+    "# password). Only used if signal_email_enabled: true.",
+    "# Vercel API token for the dynamic DNS record (aleromano.com's DNS is on",
+    "# Vercel): Account Settings -> Tokens. Only used if ddns_enabled: true."
+  ],
+  "ansible/roles/signal_monitor/templates/cloudio-signal-monitor.sh.j2": [
+    "# Sourcing this file defines the functions without running a sample, so the",
+    "# router session can be checked on its own:",
+    "#   . /usr/local/sbin/cloudio-signal-monitor.sh",
+    "#   . /etc/cloudio-signal-monitor.env",
+    "#   zte_read_signal {{ zte_router_ip }} \"$ZTE_PASSWORD\" | jq ."
+  ],
+  "ansible/roles/signal_monitor/templates/cloudio-watchdog.sh.j2": [
+    "# For a rehearsal that changes nothing on the router (it still reads the",
+    "# diagnosis), point it at an unreachable address:",
+    "#   WATCHDOG_DRY_RUN=1 WATCHDOG_TARGETS=192.0.2.1 WATCHDOG_STEP_WAIT=5 \\",
+    "#     WATCHDOG_STATE_DIR=/tmp/wd WATCHDOG_EVENTS=/tmp/wd/events.jsonl \\",
+    "#     /usr/local/sbin/cloudio-watchdog.sh"
+  ],
+  "learn/assets/quiz.js": [
+    "/* cloudio course — tiny quiz + free-recall widgets. No dependencies.",
+    "Markup contract:",
+    "<div class=\"quiz\" data-explain=\"shown after any answer (optional)\">",
+    "<p class=\"quiz-q\">Question text</p>",
+    "<button class=\"quiz-opt\" data-correct>Right answer</button>",
+    "<button class=\"quiz-opt\">Wrong answer</button>",
+    "<p class=\"quiz-fb\" hidden></p>",
+    "</div>",
+    "<div class=\"recall\">",
+    "<p>Prompt…</p>",
+    "<textarea></textarea>",
+    "<button>Show a model answer</button>",
+    "<div class=\"model\" hidden>Model answer…</div>",
+    "</div>",
+    "*/"
+  ]
+}

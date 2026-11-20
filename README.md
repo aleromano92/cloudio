@@ -87,6 +87,10 @@ cloudio/
 │       ├── unifi_lxc/          # pct create, install Docker, deploy UniFi + Mongo
 │       ├── signal_monitor/     # 5G signal + speedtest sampling, band scheduling, uplink watchdog
 │       └── ddns/               # keeps jellyfin. and home.aleromano.com pointing at the home IP (Vercel DNS)
+├── tools/
+│   └── comment-ratchet.py      # CI lint: no new comments in code (ADR-0024)
+├── .claude/skills/
+│   └── delete-comment/         # /delete-comment: sweep the comments still on the ratchet
 ├── media-stack/
 │   ├── docker-compose.yaml     # Linux paths; PUID/PGID/TZ/paths via .env
 │   ├── Caddyfile               # HTTPS for Jellyfin, certificate kept at home
@@ -538,4 +542,7 @@ for qBittorrent to seed. The public IP changes several times a day, which the
 ## Background
 
 - Project glossary: [`GLOSSARY.md`](./GLOSSARY.md)
-- Why things are the way they are: [`docs/adr/`](./docs/adr/)
+- Why things are the way they are: [`docs/adr/`](./docs/adr/). The code carries no
+  comments ([ADR-0024](docs/adr/0024-code-carries-no-comments.md)): the reason
+  behind a file is in the ADR whose "Applies to" line names it
+  (`grep -l <file> docs/adr/`).
