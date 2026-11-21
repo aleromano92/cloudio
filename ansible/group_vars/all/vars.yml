@@ -85,6 +85,12 @@ media_appdata_services:
   - qbittorrent
   - jellyfin
   - caddy
+media_auto_update_services:
+  - sonarr
+  - radarr
+  - lidarr
+  - prowlarr
+media_auto_update_on_calendar: "Sun *-*-* 05:00:00"
 jellyfin_public_host: "jellyfin.{{ ddns_domain }}"
 ha_public_host: "home.{{ ddns_domain }}"
 ha_upstream: "192.168.7.11:80"

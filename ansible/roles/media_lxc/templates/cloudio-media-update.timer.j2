@@ -1,0 +1,9 @@
+[Unit]
+Description=Update the media stack's *arr apps every week
+
+[Timer]
+OnCalendar={{ media_auto_update_on_calendar }}
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

@@ -5,7 +5,21 @@ Applies to: `media-stack/`, the `media_lxc` role, and the `media_*` and
 drive layout, the seeding policy and its bufferbloat measurements. ADR-0010 and
 ADR-0011 cover Caddy and the forwarded port.
 
-**Image tags are pinned** and bumped deliberately, never by a pull of `latest`.
+**Image tags.** Sonarr, Radarr, Lidarr and Prowlarr run `latest` and update
+themselves. Every Sunday at 05:00, `cloudio-media-update.timer` on pve pulls
+their images and recreates them, then prunes the old images
+(`media_auto_update_services`, `media_auto_update_on_calendar`).
+- The user chose this on 2026-11-21, over pinned tags bumped by hand. Their
+  settings pages kept saying an update was waiting: in Docker their own
+  updater is off, so only a new image updates them.
+- Major versions arrive unannounced too, and their database migrations go one
+  way only. The rollback is the nightly backup of the LXC, taken at 02:30
+  that same night.
+- The run is a plain timer on pve, not Ansible: the vault password is never
+  stored on the node (ADR-0022), so no playbook runs unattended. The repo
+  holds `latest`, so the next playbook run never downgrades an app whose
+  database has already migrated.
+- The other images stay pinned and are bumped deliberately.
 
 **Networking.** Jellyfin runs on host networking, and so does Caddy in front of
 it.

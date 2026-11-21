@@ -53,3 +53,21 @@
     /opt/media-stack/qbittorrent-preferences.json
   register: media_qbittorrent_prefs
   changed_when: media_qbittorrent_prefs.stdout.startswith('CHANGED')
+
+- name: Install the weekly update of the *arr apps
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - cloudio-media-update.service
+    - cloudio-media-update.timer
+
+- name: Enable the weekly update of the *arr apps
+  ansible.builtin.systemd:
+    name: cloudio-media-update.timer
+    enabled: true
+    state: started
+    daemon_reload: true

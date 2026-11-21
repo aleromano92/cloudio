@@ -1,0 +1,6 @@
+[Unit]
+Description=Pull and restart the media stack's *arr apps on their latest images
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/pct exec {{ media_ctid }} -- bash -c "cd /opt/media-stack && docker compose pull {{ media_auto_update_services | join(' ') }} && docker compose up -d {{ media_auto_update_services | join(' ') }} && docker image prune -f"
