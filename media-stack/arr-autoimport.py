@@ -98,12 +98,25 @@ def readings(title):
     " - ", and each of those without the stray sequel number, which throws
     TMDB's search off ("American Pie Presents 1 Band Camp" finds nothing,
     "American Pie Presents Band Camp" does).
+
+    With three or more parts, every run of adjacent parts is a reading too,
+    longest first. "Notte al Museo - Il Segreto del Faraone - Night at the
+    Museum - Secret of the Tomb" holds two titles with a " - " each, and
+    only the run "Night at the Museum - Secret of the Tomb" is one TMDB knows.
+
+    A 1 is always dropped, and what comes before it is the franchise's first
+    film ("Kung Fu Panda 1" is "Kung Fu Panda"). Any other number is dropped
+    only before a subtitle, which still names the sequel ("American Pie 3 Il
+    matrimonio"). Without its number, "Paranormal Activity 2" (2010) would
+    read as "Paranormal Activity" (2009), a year apart, and match it.
     """
     t = clean_title(title)
-    parts = [t] + ([p.strip() for p in t.split(" - ") if p.strip()] if " - " in t else [])
+    parts = [p.strip() for p in t.split(" - ") if p.strip()] or [t]
+    runs = [" - ".join(parts[i:i + n]) for n in range(len(parts), 0, -1) for i in range(len(parts) - n + 1)]
     out = []
-    prefix = [re.split(r"\s\d\s", f"{p} ")[0].strip() for p in parts if re.search(r"\s\d\s", f"{p} ")]
-    for p in parts + [re.sub(r"\s+\d\s+", " ", f" {p} ").strip() for p in parts] + prefix:
+    unnumbered = [re.sub(r"\s+(?:1|\d(?=\s+\S))\s+", " ", f" {p} ").strip() for p in runs]
+    prefix = [re.split(r"\s1\s", f"{p} ")[0].strip() for p in runs if re.search(r"\s1\s", f"{p} ")]
+    for p in runs + unnumbered + prefix:
         if p and p not in out:
             out.append(p)
     return out

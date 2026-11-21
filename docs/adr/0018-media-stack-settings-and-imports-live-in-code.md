@@ -81,8 +81,16 @@ depends on:
 imports:
 - Trust only TMDB's best answer for the year (±1). A lower-ranked result that
   happens to be in the library is how a wrong film sneaks in.
-- A franchise name before a number, plus the year, is exact enough
-  ("American Pie 1 Il primo assaggio" → "American Pie").
+- A franchise name before a 1, plus the year, is exact enough
+  ("American Pie 1 Il primo assaggio" → "American Pie"). Any other number is
+  dropped only before a subtitle ("American Pie 3 Il matrimonio" → "American
+  Pie Il matrimonio"). Without its number, "Paranormal Activity 2" (2010)
+  reads as "Paranormal Activity" (2009), which the ±1 year lets through. It
+  was caught on 2026-11-21 in a dry run, before anything was imported.
+- A title can carry an Italian and an English name, each with its own " - "
+  subtitle ("Notte al Museo - Il Segreto del Faraone - Night at the Museum -
+  Secret of the Tomb"). Every run of adjacent parts is tried, longest first,
+  so the English pair is found.
 - A pack holds several full films, so each file is matched on its own name.
   Files under 40% of the largest are extras, not films.
 - When the torrent's name doesn't match, the main file's name is tried, since

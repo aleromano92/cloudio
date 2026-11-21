@@ -78,6 +78,10 @@
     caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
   changed_when: false
 
+- name: Restart arr-autoimport, which reads its script only at start
+  ansible.builtin.command: pct exec {{ media_ctid }} -- docker restart arr-autoimport
+  changed_when: false
+
 - name: Install Avahi in the media LXC, to announce the .local names
   ansible.builtin.command: >-
     pct exec {{ media_ctid }} -- bash -euc '
