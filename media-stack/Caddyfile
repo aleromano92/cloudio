@@ -17,3 +17,35 @@
 
 	reverse_proxy {$HA_UPSTREAM}
 }
+
+http://jellyfin.local {
+	reverse_proxy 127.0.0.1:8096
+}
+
+http://qbittorrent.local {
+	reverse_proxy 127.0.0.1:8080
+}
+
+http://sonarr.local {
+	reverse_proxy 127.0.0.1:8989 {
+		header_up -X-Forwarded-For
+	}
+}
+
+http://radarr.local {
+	reverse_proxy 127.0.0.1:7878 {
+		header_up -X-Forwarded-For
+	}
+}
+
+http://lidarr.local {
+	reverse_proxy 127.0.0.1:8686 {
+		header_up -X-Forwarded-For
+	}
+}
+
+http://prowlarr.local {
+	reverse_proxy 127.0.0.1:9696 {
+		header_up -X-Forwarded-For
+	}
+}

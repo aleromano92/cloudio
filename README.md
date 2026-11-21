@@ -234,14 +234,20 @@ Everything runs in the `media` LXC (`192.168.7.12`). On the LAN, or from
 anywhere with Tailscale on (the node advertises `192.168.7.0/24` as a subnet
 route):
 
-| App | URL | Reachable from the internet |
-|---|---|---|
-| Jellyfin | `http://192.168.7.12:8096` | yes, as `https://jellyfin.aleromano.com` |
-| qBittorrent | `http://192.168.7.12:8080` | no |
-| Sonarr | `http://192.168.7.12:8989` | no |
-| Radarr | `http://192.168.7.12:7878` | no |
-| Lidarr | `http://192.168.7.12:8686` | no |
-| Prowlarr | `http://192.168.7.12:9696` | no |
+| App | At home | Also | Reachable from the internet |
+|---|---|---|---|
+| Jellyfin | `http://jellyfin.local` | `http://192.168.7.12:8096` | yes, as `https://jellyfin.aleromano.com` |
+| qBittorrent | `http://qbittorrent.local` | `http://192.168.7.12:8080` | no |
+| Sonarr | `http://sonarr.local` | `http://192.168.7.12:8989` | no |
+| Radarr | `http://radarr.local` | `http://192.168.7.12:7878` | no |
+| Lidarr | `http://lidarr.local` | `http://192.168.7.12:8686` | no |
+| Prowlarr | `http://prowlarr.local` | `http://192.168.7.12:9696` | no |
+
+The `.local` names work only on the home network: the `media` LXC announces
+them over mDNS (Avahi), and Caddy on port 80 passes each to its app. mDNS
+doesn't cross Tailscale, so away from home use the IP addresses. To add a
+name, add an `http://<name>.local` block to `media-stack/Caddyfile`; the
+`media_lxc` role announces every such name it finds there.
 
 **The drive.** `/mnt/media` on the host is `/data` in the container:
 `media/{movies,tv,music}` for the library and `torrents/` for qBittorrent

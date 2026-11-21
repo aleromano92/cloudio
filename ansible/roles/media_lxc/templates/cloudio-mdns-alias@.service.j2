@@ -1,0 +1,12 @@
+[Unit]
+Description=Announce %i.local on the LAN over mDNS
+BindsTo=avahi-daemon.service
+After=avahi-daemon.service
+
+[Service]
+ExecStart=/usr/bin/avahi-publish --address --no-reverse %i.local {{ media_lxc_ip.split('/')[0] }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=avahi-daemon.service

@@ -33,6 +33,25 @@ it.
 - Caddy answers only the names in its config; any other name gets no
   certificate and no answer.
 
+**The `.local` names.** At home each web UI also answers on
+`http://<app>.local`, which the README lists.
+- The LXC announces them over mDNS with Avahi, one `cloudio-mdns-alias@<name>`
+  unit each. They are published without a reverse record (`--no-reverse`), so
+  the six names don't each claim the address's reverse record, which
+  `media.local` already holds.
+- Avahi listens on `eth0` only. Left alone, it also announces Docker's bridge
+  addresses.
+- The role reads the names from the Caddyfile's `http://<name>.local` blocks,
+  so the two lists can't drift apart.
+- Caddy strips `X-Forwarded-For` before passing a request to Sonarr, Radarr,
+  Lidarr or Prowlarr. Their current versions demand a login on any request
+  that carries it, unless the proxy is in their Trusted Networks. Without the
+  header, the request reaches them like a direct one from the LAN, which they
+  let in without a login. The rule lives in the Caddyfile, not in four apps'
+  settings.
+- They are plain HTTP on port 80, which the router doesn't forward. mDNS
+  doesn't cross Tailscale, so away from home the IP addresses are the way in.
+
 **qBittorrent's settings go through its web API.** qBittorrent rewrites its
 own config file on every exit, so that file can't be the source of truth.
 `qbittorrent-configure.py` sends only the settings that differ. API facts it

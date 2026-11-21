@@ -71,3 +71,60 @@
     enabled: true
     state: started
     daemon_reload: true
+
+- name: Reload Caddy, which reads its Caddyfile only at start or reload
+  ansible.builtin.command: >-
+    pct exec {{ media_ctid }} -- docker exec caddy
+    caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  changed_when: false
+
+- name: Install Avahi in the media LXC, to announce the .local names
+  ansible.builtin.command: >-
+    pct exec {{ media_ctid }} -- bash -euc '
+    dpkg -s avahi-daemon avahi-utils >/dev/null 2>&1 && exit 0;
+    apt-get update;
+    DEBIAN_FRONTEND=noninteractive apt-get install -y avahi-daemon avahi-utils;
+    echo INSTALLED'
+  register: media_avahi_install
+  changed_when: "'INSTALLED' in media_avahi_install.stdout"
+
+- name: Keep Avahi on the LAN interface, off Docker's bridges
+  ansible.builtin.command: >-
+    pct exec {{ media_ctid }} -- bash -euc '
+    grep -qx "allow-interfaces=eth0" /etc/avahi/avahi-daemon.conf && exit 0;
+    sed -i -E "s/^.?allow-interfaces=.*/allow-interfaces=eth0/" /etc/avahi/avahi-daemon.conf;
+    grep -qx "allow-interfaces=eth0" /etc/avahi/avahi-daemon.conf;
+    systemctl restart avahi-daemon;
+    echo CHANGED'
+  register: media_avahi_conf
+  changed_when: "'CHANGED' in media_avahi_conf.stdout"
+
+- name: Render the mDNS alias unit on the node
+  ansible.builtin.template:
+    src: cloudio-mdns-alias@.service.j2
+    dest: /root/.cloudio-media-mdns-alias@.service
+    mode: "0644"
+  register: media_mdns_unit
+
+- name: Push the mDNS alias unit into the media LXC
+  ansible.builtin.command: >-
+    pct push {{ media_ctid }} /root/.cloudio-media-mdns-alias@.service
+    /etc/systemd/system/cloudio-mdns-alias@.service --perms 0644
+  when: media_mdns_unit.changed
+
+- name: Announce every .local name in the Caddyfile
+  ansible.builtin.command: >-
+    pct exec {{ media_ctid }} -- bash -euc '
+    systemctl daemon-reload;
+    for n in {{ media_local_names | join(" ") }}; do
+    if [ {{ media_mdns_unit.changed | lower }} = true ]; then systemctl restart cloudio-mdns-alias@$n; fi;
+    systemctl is-enabled --quiet cloudio-mdns-alias@$n && systemctl is-active --quiet cloudio-mdns-alias@$n && continue;
+    systemctl enable --now cloudio-mdns-alias@$n;
+    echo CHANGED;
+    done'
+  vars:
+    media_local_names: >-
+      {{ lookup('ansible.builtin.file', playbook_dir ~ '/../media-stack/Caddyfile')
+         | regex_findall('http://([a-z0-9-]+)\.local') }}
+  register: media_mdns_aliases
+  changed_when: "'CHANGED' in media_mdns_aliases.stdout or media_mdns_unit.changed"
