@@ -101,6 +101,11 @@ def res_of(q):
     return ((q or {}).get("quality") or {}).get("resolution") or 0
 
 
+def title_runs(t):
+    parts = [p.strip() for p in t.split(" - ") if p.strip()] or [t]
+    return [" - ".join(parts[i:i + n]) for n in range(len(parts), 0, -1) for i in range(len(parts) - n + 1)]
+
+
 def readings(title):
     """Ways to read a release title, most specific first.
 
@@ -120,9 +125,7 @@ def readings(title):
     matrimonio"). Without its number, "Paranormal Activity 2" (2010) would
     read as "Paranormal Activity" (2009), a year apart, and match it.
     """
-    t = clean_title(title)
-    parts = [p.strip() for p in t.split(" - ") if p.strip()] or [t]
-    runs = [" - ".join(parts[i:i + n]) for n in range(len(parts), 0, -1) for i in range(len(parts) - n + 1)]
+    runs = title_runs(clean_title(title))
     out = []
     unnumbered = [re.sub(r"\s+(?:1|\d(?=\s+\S))\s+", " ", f" {p} ").strip() for p in runs]
     prefix = [re.split(r"\s1\s", f"{p} ")[0].strip() for p in runs if re.search(r"\s1\s", f"{p} ")]
@@ -203,16 +206,58 @@ def handle_movie(radarr, item):
     return import_film(radarr, item, files[0], movie, how)
 
 
+def bare_name(t):
+    return norm(re.sub(r"\s*\([^)]*\)\s*$", "", t or ""))
+
+
 def find_series(sonarr, title):
-    want = series_name(title)
-    for s in sonarr.api("series"):
-        names = {norm(s.get("title"))} | {norm(a.get("title")) for a in s.get("alternateTitles", [])}
-        if norm(want) in names:
-            return s, "library"
-    for s in sonarr.api("series/lookup", params={"term": want})[:1]:
-        if s.get("id"):
-            return s, "TVDB, already in library"
-    return None, f"no series in the library matches '{want}'"
+    """The series a release title names: in the library, else on TVDB.
+
+    TVDB's best answer can't be trusted on its own, as it can for films:
+    "Euphoria" ranks a 2011 series above "Euphoria (US)", and "Digimon" ranks
+    the 2020 reboot first. A TVDB series is added only when its title is the
+    release's, word for word, and no other series shares it: TVDB tells
+    namesakes apart with a year or country ("Doctor Who (2005)", "Shameless
+    (US)"), which the release must then carry too ("Doctor.Who.2005.S01E01").
+    """
+    cands = title_runs(series_name(title))
+    library = sonarr.api("series")
+    for c in cands:
+        for s in library:
+            names = {norm(s.get("title"))} | {norm(a.get("title")) for a in s.get("alternateTitles", [])}
+            if norm(c) in names:
+                return s, "library"
+    why = f"no series in the library or on TVDB is called '{cands[0]}'"
+    for c in cands:
+        found = sonarr.api("series/lookup", params={"term": c})
+        if c == cands[0] and found and found[0].get("id"):
+            return found[0], f"TVDB '{c}', already in library"
+        same = [s for s in found if norm(s["title"]) == norm(c)]
+        namesakes = [s for s in found if bare_name(s["title"]) == bare_name(c)]
+        if not same:
+            continue
+        if len(same) > 1 or (bare_name(same[0]["title"]) == norm(same[0]["title"]) and len(namesakes) > 1):
+            why = f"{max(len(same), len(namesakes))} TVDB series are called '{c}'"
+            continue
+        if same[0].get("id"):
+            return same[0], f"TVDB '{c}', already in library"
+        return add_series(sonarr, same[0], f"TVDB '{c}'")
+    return None, why
+
+
+def add_series(sonarr, s, how):
+    s.update(qualityProfileId=1, rootFolderPath="/data/media/tv", seasonFolder=True, monitored=False,
+             monitorNewItems="none", seasons=[dict(x, monitored=False) for x in s.get("seasons", [])],
+             addOptions={"monitor": "none", "searchForMissingEpisodes": False,
+                         "searchForCutoffUnmetEpisodes": False})
+    if DRY_RUN:
+        return s, f"{how}, would add"
+    s = sonarr.api("series", s)
+    for _ in range(40):
+        if sonarr.api("episode", params={"seriesId": s["id"]}):
+            break
+        time.sleep(3)
+    return s, f"{how}, added unmonitored"
 
 
 def file_episodes(sonarr, f, series, have):
@@ -242,16 +287,22 @@ def file_episodes(sonarr, f, series, have):
 
 
 def handle_episodes(sonarr, item):
+    items = video_items(sonarr.api("manualimport", params={
+        "downloadId": item["downloadId"], "filterExistingFiles": "false"}))
     if item.get("seriesId"):
         series, how = sonarr.api(f"series/{item['seriesId']}"), "queue"
     else:
-        parsed = sonarr.api("parse", params={"title": item["title"]}).get("parsedEpisodeInfo") or {}
-        series, how = find_series(sonarr, parsed.get("seriesTitle") or item["title"])
+        series = None
+        for name in [item["title"]] + [os.path.splitext(os.path.basename(f["path"]))[0] for f in items[:1]]:
+            parsed = sonarr.api("parse", params={"title": name}).get("parsedEpisodeInfo") or {}
+            series, how = find_series(sonarr, parsed.get("seriesTitle") or name)
+            if series:
+                break
     if not series:
         return f"left alone: {how}"
-    items = video_items(sonarr.api("manualimport", params={
-        "downloadId": item["downloadId"], "filterExistingFiles": "false"}))
-    have = {e["id"]: e for e in sonarr.api("episode", params={"seriesId": series["id"], "includeEpisodeFile": "true"})}
+    if not series.get("id"):
+        return f"would add {series['title']} ({series.get('year')}) and import {len(items)} file(s) [{how}]"
+    have ={e["id"]: e for e in sonarr.api("episode", params={"seriesId": series["id"], "includeEpisodeFile": "true"})}
     todo, skipped = [], 0
     for f in items:
         eps = [have.get(i) for i in file_episodes(sonarr, f, series, have)]

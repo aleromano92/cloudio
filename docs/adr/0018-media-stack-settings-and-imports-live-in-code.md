@@ -103,6 +103,24 @@ imports:
   Without that check, an "S01E25" in a series whose first season has 24
   episodes would be filed as S02E01. A file with only a number ("Ep 13") is
   the episode with that absolute number.
+- A series missing from the library is added from TVDB, unmonitored and with
+  no search, only when its TVDB title is the release's word for word and no
+  other TVDB series shares it. TVDB's best answer, which is trusted for films,
+  is not trusted for series: "Euphoria" ranks a 2011 series above "Euphoria
+  (US)", and "Digimon" ranks the 2020 reboot first. TVDB tells namesakes apart
+  with a year or country ("Doctor Who (2005)", "Shameless (US)"), so a release
+  that carries one ("Doctor.Who.2005.S01E01") gets that series. Tested on
+  2026-11-23 against every series in the library, with the library hidden:
+  no wrong pick. Titles with namesakes (Friends, Lost, Heroes, Boris) are left
+  for the user to add by hand.
+- Sonarr's lookup returns no alternate titles, so an Italian title alone ("La
+  Casa di Carta") adds nothing. A release that also carries the English title
+  after " - " ("Il Trono di Spade - Game of Thrones") is matched on that.
+- A TVDB best answer already in the library is taken only for the whole
+  title, never for one side of a " - ", so a stray part like "Parte 1" can't
+  land in a library series.
+- When the torrent's name names no series, the main file's name is tried, as
+  for films.
 - A trailing season or "Ep" is dropped from the series title Sonarr parses:
   "Jujutsu.Kaisen.S01-01E24" parses as "Jujutsu Kaisen S01", and
   "Jujutsu Kaisen - Ep 13" as "Jujutsu Kaisen - Ep".
