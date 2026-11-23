@@ -97,3 +97,12 @@ imports:
   the torrent's may be vaguer.
 - Sonarr's manual import is queried without `seriesId`. With it, Sonarr lists
   the series' library files instead of the download's.
+- Anime packs number episodes from the first one ever aired. When a file's
+  season and episode don't exist, its number is read as absolute and kept only
+  if that episode is in the same season: "Jujutsu Kaisen S02E25" is S02E01.
+  Without that check, an "S01E25" in a series whose first season has 24
+  episodes would be filed as S02E01. A file with only a number ("Ep 13") is
+  the episode with that absolute number.
+- A trailing season or "Ep" is dropped from the series title Sonarr parses:
+  "Jujutsu.Kaisen.S01-01E24" parses as "Jujutsu Kaisen S01", and
+  "Jujutsu Kaisen - Ep 13" as "Jujutsu Kaisen - Ep".

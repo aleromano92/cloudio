@@ -7,7 +7,9 @@ release ("X-Men - Giorni di un Futuro Passato - ROGUE CUT (2014) ...") parses
 to a title neither app knows, so it waits forever as "manual import required".
 
 Sonarr also blocks multi-season packs: it reads "Euphoria.S01-03..." as
-season 1 only and rejects every 2x01 or 3x01 file as unexpected.
+season 1 only and rejects every 2x01 or 3x01 file as unexpected. And anime
+packs count episodes from the first one ever aired: "Jujutsu Kaisen S02E25"
+is season 2's first episode, "Ep 13" is season 1's thirteenth.
 
 Every INTERVAL seconds this looks at each app's queue, including the items it
 couldn't tie to a film or series and blocked series imports, and for every
@@ -47,6 +49,7 @@ EDITION = re.compile(
     r"remastered|uncut|unrated|versione (estesa|integrale|cinematografica)|"
     r"edizione (speciale|estesa)|imax( edition)?|criterion|anniversary edition)\b"
 )
+SERIES_TAIL = re.compile(r"(?i)(?:[\s._-]+(?:s\d{1,2}|ep))+$")
 
 
 def log(*a):
@@ -62,6 +65,13 @@ def norm(s):
 def clean_title(t):
     t = EDITION.sub(" ", t or "")
     return re.sub(r"[\s\-:._]+$", "", re.sub(r"\s{2,}", " ", t)).strip(" -")
+
+
+def series_name(t):
+    """A series title as Sonarr parsed it, without the season or "Ep" that
+    stuck to it: "Jujutsu Kaisen S01", "Jujutsu Kaisen - Ep"."""
+    t = clean_title(t)
+    return clean_title(SERIES_TAIL.sub("", t)) or t
 
 
 class App:
@@ -194,28 +204,41 @@ def handle_movie(radarr, item):
 
 
 def find_series(sonarr, title):
-    want = norm(clean_title(title))
+    want = series_name(title)
     for s in sonarr.api("series"):
         names = {norm(s.get("title"))} | {norm(a.get("title")) for a in s.get("alternateTitles", [])}
-        if want in names:
+        if norm(want) in names:
             return s, "library"
-    for s in sonarr.api("series/lookup", params={"term": clean_title(title)})[:1]:
+    for s in sonarr.api("series/lookup", params={"term": want})[:1]:
         if s.get("id"):
             return s, "TVDB, already in library"
-    return None, f"no series in the library matches '{clean_title(title)}'"
+    return None, f"no series in the library matches '{want}'"
 
 
-def file_episodes(sonarr, f, series, by_number):
+def file_episodes(sonarr, f, series, have):
     """The library episodes a file holds, read from its own name.
 
     Sonarr's guess can't be trusted here: it ties a pack's files to what the
     folder name promised, so "Euphoria.S01-03..." expects season 1 only.
+
+    A season and episode that don't exist are read as an absolute number,
+    kept only if that episode is in the same season: "S02E25" is S02E01 when
+    season 1 has 24 episodes. A name with only a number ("Ep 13") is that
+    absolute episode.
     """
     if (f.get("series") or {}).get("id") == series["id"] and f.get("episodes"):
         return [e["id"] for e in f["episodes"]]
     name = os.path.splitext(os.path.basename(f["path"]))[0]
     p = sonarr.api("parse", params={"title": name}).get("parsedEpisodeInfo") or {}
-    return [by_number.get((p.get("seasonNumber"), n)) for n in p.get("episodeNumbers") or []]
+    by_number = {(e["seasonNumber"], e["episodeNumber"]): e for e in have.values()}
+    by_absolute = {e["absoluteEpisodeNumber"]: e for e in have.values() if e.get("absoluteEpisodeNumber")}
+    season = p.get("seasonNumber")
+    if p.get("episodeNumbers"):
+        found = [by_number.get((season, n)) or by_absolute.get(n) for n in p["episodeNumbers"]]
+        return [e["id"] if e and e["seasonNumber"] == season else None for e in found]
+    if p.get("special"):
+        return []
+    return [(by_absolute.get(n) or {}).get("id") for n in p.get("absoluteEpisodeNumbers") or []]
 
 
 def handle_episodes(sonarr, item):
@@ -229,10 +252,9 @@ def handle_episodes(sonarr, item):
     items = video_items(sonarr.api("manualimport", params={
         "downloadId": item["downloadId"], "filterExistingFiles": "false"}))
     have = {e["id"]: e for e in sonarr.api("episode", params={"seriesId": series["id"], "includeEpisodeFile": "true"})}
-    by_number = {(e["seasonNumber"], e["episodeNumber"]): e["id"] for e in have.values()}
     todo, skipped = [], 0
     for f in items:
-        eps = [have.get(i) for i in file_episodes(sonarr, f, series, by_number)]
+        eps = [have.get(i) for i in file_episodes(sonarr, f, series, have)]
         if not eps or None in eps:
             skipped += 1
             continue
